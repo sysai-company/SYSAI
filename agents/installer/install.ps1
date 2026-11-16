@@ -74,15 +74,55 @@ try {
     # 4. Hermes Agent
     if (-not (Test-Command 'hermes')) {
         Say 'ставлю Hermes Agent (Nous Research), это несколько минут...'
+
+        # The Nous Research installer domain can return HTTP 403 for some networks.
+        # Keep it as the primary source and fall back to the official GitHub repository.
+        $sources = @(
+            @{ Url = 'https://hermes-agent.nousresearch.com/install.ps1'; Name = 'Nous Research installer' },
+            @{ Url = 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1'; Name = 'NousResearch/hermes-agent on GitHub' }
+        )
+        $text = $null
+        foreach ($source in $sources) {
+            try {
+                Say "получаю установщик Hermes: $($source.Name)..."
+                $response = Invoke-WebRequest -Uri $source.Url -UseBasicParsing -ErrorAction Stop
+                $candidate = [string]$response.Content
+                $candidate = $candidate.TrimStart([char]0xFEFF)
+
+                # Do not execute an HTML block page or an unexpected response as PowerShell.
+                if ($candidate -notmatch '(?m)^# Hermes Agent bootstrap:' -or
+                    $candidate -notmatch '(?m)^param\(') {
+                    throw 'источник вернул неожиданный документ, ожидается официальный install.ps1'
+                }
+
+                $text = $candidate
+                Say "установщик Hermes получен: $($source.Name)"
+                break
+            }
+            catch {
+                $reason = "$($_.Exception.Message)"
+                if ($reason.Length -gt 220) { $reason = $reason.Substring(0, 220) }
+                Warn "источник $($source.Name) недоступен: $reason"
+            }
+        }
+
+        if (-not $text) {
+            Stop-Install 'не удалось загрузить официальный установщик Hermes ни с домена Nous Research, ни с GitHub. Проверьте подключение и повторите установку'
+        }
+
         $tmp = Join-Path $env:TEMP 'sysai-hermes-install.ps1'
-        $text = Invoke-RestMethod 'https://hermes-agent.nousresearch.com/install.ps1'
-        if ($text -is [byte[]]) { $text = [Text.Encoding]::UTF8.GetString($text) }
-        $text = "$text".TrimStart([char]0xFEFF)
-        [IO.File]::WriteAllText($tmp, $text, (New-Object Text.UTF8Encoding $true))
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $tmp -NonInteractive
-        Remove-Item $tmp -ErrorAction SilentlyContinue
+        try {
+            [IO.File]::WriteAllText($tmp, $text, (New-Object Text.UTF8Encoding $true))
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $tmp -NonInteractive
+        }
+        finally {
+            Remove-Item $tmp -ErrorAction SilentlyContinue
+        }
+
         Update-PathNow
-        if (-not (Test-Command 'hermes')) { Stop-Install 'Hermes не установился. Поставьте его по https://hermes-agent.nousresearch.com и запустите установщик снова' }
+        if (-not (Test-Command 'hermes')) {
+            Stop-Install 'Hermes не установился. Проверьте сообщения установщика выше и повторите запуск SYSAI installer'
+        }
     }
 
     # 5. профиль Hermes агента — без встроенных навыков (нужные придут из SYSAI_Hub)
