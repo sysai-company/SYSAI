@@ -366,7 +366,7 @@ def test_bundled_easybuilder_packages_download_without_publishing(client, net_ag
                                ('ebpro-mnemoscheme', '1.1.0', 'SKILL.md'),
                                ('ebpro-gui', '1.0.1', 'TOOL.md'), ('plc-kit', '1.6.1', 'TOOL.md'),
                                ('machine-expert', '0.1.3', 'TOOL.md'), ('pic-index', '1.0.3', 'TOOL.md'),
-                               ('doc-kit', '1.1.1', 'TOOL.md'), ('plc-project', '2.6.0', 'SKILL.md'),
+                               ('doc-kit', '1.1.1', 'TOOL.md'), ('plc-project', '2.6.1', 'SKILL.md'),
                                ('project-docs', '1.1.0', 'SKILL.md'), ('drawing-kit', '1.1.1', 'TOOL.md'), ('plc-live', '1.0.1', 'TOOL.md')]:
         assert f'/hub/bundled/{name}.zip' in page.text
         result = client.get(f'/hub/bundled/{name}.zip')

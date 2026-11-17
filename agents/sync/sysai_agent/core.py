@@ -124,8 +124,36 @@ def _offline_or_refused(exc: ApiError) -> SyncError:
     return SyncError(str(exc))
 
 
+def _filter_unready_hub_mcp(harness: dict, manifest: dict, state: dict, home: Path) -> tuple[dict, list[str]]:
+    """Do not give Hermes a local Hub MCP server until its exact manifest version is installed."""
+    safe = dict(harness or {})
+    servers = dict(safe.get("mcp_servers") or {})
+    wanted = {str(item.get("name") or ""): item for item in (manifest.get("tools") or [])
+              if isinstance(item, dict) and item.get("name")}
+    installed = state.get("tools") or {}
+    missing = []
+    for name, config in list(servers.items()):
+        if not isinstance(config, dict):
+            continue
+        command = str(config.get("command") or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+        args = config.get("args") if isinstance(config.get("args"), list) else []
+        # Only gate local SYSAI wrappers. Remote URL-based MCP servers (including the built-in «sysai») do not
+        # depend on the local Hub tools directory.
+        if command not in ("sysai-agent", "sysai-agent.exe") or len(args) < 2 or args[0] != "mcp" or args[1] != name:
+            continue
+        desired = wanted.get(name) or {}
+        have = installed.get(name) or {}
+        ready = bool(desired.get("sha256") and have.get("sha256") == desired.get("sha256")
+                     and (Path(home) / "tools" / name).is_dir())
+        if not ready:
+            servers.pop(name, None)
+            missing.append(name)
+    safe["mcp_servers"] = servers
+    return safe, sorted(missing)
+
+
 def sync_once(home: Path | None = None, transport=None, restart: bool = True) -> dict:
-    """Everything once: the rules (signature checked) → the Hermes profile; the hub; proposals; the pulse."""
+    """Everything once: signed rules → Hub install/verification → Hermes profile → proposals → pulse."""
     home = Path(home or paths.home())
     cfg = load_agent(home)
     client, token = client_for(home, cfg, transport)
@@ -153,14 +181,11 @@ def sync_once(home: Path | None = None, transport=None, restart: bool = True) ->
     harness = doc.get("harness_config") or {}
     fsutil.write_json(home / "sysai.json", harness.get("sysai") or {})
     profile_dir = paths.hermes_profile_dir(cfg)
-    applied = True
-    if doc.get("harness") == "hermes" and harness:
-        try:
-            report["changed"] = hermes.apply(profile_dir, harness, doc.get("soul") or "", home, token, cfg["server"],
-                                             launcher())
-        except (OSError, ValueError) as exc:
-            applied = False
-            report["errors"].append(f"Профиль Hermes ({profile_dir}): {exc}")
+
+    # Install and verify the Hub before writing any local MCP server into Hermes config. Hermes treats a server
+    # that exits during its initial connection as disconnected for the rest of the session.
+    manifest = {}
+    hub_synced = False
     try:
         manifest = client.json("GET", "/agents/api/hub/manifest")
         report["hub"] = hubsync.sync(home, client, manifest, state, profile_dir)
@@ -170,8 +195,24 @@ def sync_once(home: Path | None = None, transport=None, restart: bool = True) ->
             state.pop("hub_rev", None)
         else:
             state["hub_rev"] = manifest.get("rev", "")
+        hub_synced = True
     except ApiError as exc:
         report["errors"].append(f"SYSAI_Hub: {exc}")
+        state.pop("hub_rev", None)
+
+    safe_harness, unready_mcp = _filter_unready_hub_mcp(harness, manifest if hub_synced else {}, state, home)
+    applied = hub_synced and not unready_mcp
+    for name in unready_mcp:
+        report["errors"].append(
+            f"MCP-сервер {name} не добавлен в Hermes: инструмент не установлен в версии из манифеста SYSAI_Hub")
+
+    if doc.get("harness") == "hermes" and harness:
+        try:
+            report["changed"] = hermes.apply(profile_dir, safe_harness, doc.get("soul") or "", home, token,
+                                             cfg["server"], launcher())
+        except (OSError, ValueError) as exc:
+            applied = False
+            report["errors"].append(f"Профиль Hermes ({profile_dir}): {exc}")
     try:
         report["proposals"] = hubsync.propose(home, client, state, doc.get("rules") or {})
     except ApiError as exc:
@@ -183,6 +224,11 @@ def sync_once(home: Path | None = None, transport=None, restart: bool = True) ->
         state["applied_at"] = now()
     if report["changed"] or (report["hub"] or {}).get("changed") or (report["hub"] or {}).get("removed"):
         state["restart_pending"] = True
+    state["synced_at"] = now()
+    state["error"] = "; ".join(report["errors"])[:2000]
+    # mcpwrap reads state.json when Hermes starts a local MCP process. Persist the verified Hub tool records before
+    # restarting the gateway; otherwise the wrapper can still see the previous state and exit as «not connected».
+    fsutil.write_json(home / "state.json", state)
     if state.get("restart_pending") and not hermes.gateway_running(profile_dir):
         state.pop("restart_pending", None)  # nothing to restart: Hermes reads the new settings when it starts
         report["restart"] = "шлюз Hermes не запущен: новые настройки он возьмёт при запуске"
@@ -193,8 +239,6 @@ def sync_once(home: Path | None = None, transport=None, restart: bool = True) ->
             state.pop("restart_pending", None)
         else:
             log.info("Hermes не перезапущен (%s): попробую при следующей синхронизации", said)
-    state["synced_at"] = now()
-    state["error"] = "; ".join(report["errors"])[:2000]
     try:
         report["pulse"] = pulse(home, client, state)
     except ApiError as exc:

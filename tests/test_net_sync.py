@@ -285,6 +285,64 @@ def _rpc(id_, method, params=None):
     return json.dumps({"jsonrpc": "2.0", "id": id_, "method": method, "params": params or {}}, ensure_ascii=False)
 
 
+def test_hub_mcp_is_applied_only_after_the_exact_tool_version_is_installed(client, pc, monkeypatch):
+    _publish(client, {"TOOL.md": TOOL, "server.py": SERVER}, "report-kit")
+    access.set_agent_access(pc["agent_id"], overrides={"mcp": {"sysai": ["*"], "report-kit": ["read_doc"]}})
+
+    events = []
+    real_download = hubsync._download
+    real_sync = hubsync.sync
+    real_apply = hermes.apply
+
+    def observed_restart(profile, profile_dir):
+        state = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))
+        ready = "report-kit" in (state.get("tools") or {}) and (pc["home"] / "tools" / "report-kit").is_dir()
+        assert ready == (pc["home"] / "tools" / "report-kit").is_dir()
+        events.append("restart")
+        return True, "test restart"
+
+    def broken_download(c, item):
+        if item["name"] == "report-kit":
+            raise hubsync.HubError("test download failure")
+        return real_download(c, item)
+
+    def observed_sync(*args, **kwargs):
+        events.append("hub")
+        return real_sync(*args, **kwargs)
+
+    def observed_apply(profile_dir, harness_config, *args, **kwargs):
+        events.append("hermes")
+        servers = harness_config.get("mcp_servers") or {}
+        if "report-kit" in servers:
+            assert (pc["home"] / "tools" / "report-kit").is_dir()
+            assert servers["report-kit"]["args"] == ["mcp", "report-kit"]
+        else:
+            assert not (pc["home"] / "tools" / "report-kit").is_dir()
+        return real_apply(profile_dir, harness_config, *args, **kwargs)
+
+    monkeypatch.setattr(hubsync, "_download", broken_download)
+    monkeypatch.setattr(hubsync, "sync", observed_sync)
+    monkeypatch.setattr(hermes, "apply", observed_apply)
+    monkeypatch.setattr(hermes, "gateway_running", lambda profile_dir: True)
+    monkeypatch.setattr(hermes, "restart", observed_restart)
+
+    failed = core.sync_once(pc["home"], transport=pc["send"])
+    cfg = yaml.safe_load((pc["profile"] / "config.yaml").read_text(encoding="utf-8"))
+    assert "report-kit" not in cfg["mcp_servers"]
+    assert any("test download failure" in error for error in failed["errors"])
+    assert any("не добавлен в Hermes" in error for error in failed["errors"])
+    assert events == ["hub", "hermes", "restart"]
+
+    monkeypatch.setattr(hubsync, "_download", real_download)
+    events.clear()
+    succeeded = core.sync_once(pc["home"], transport=pc["send"])
+    cfg = yaml.safe_load((pc["profile"] / "config.yaml").read_text(encoding="utf-8"))
+    assert "report-kit" in cfg["mcp_servers"]
+    assert cfg["mcp_servers"]["report-kit"]["args"] == ["mcp", "report-kit"]
+    assert succeeded["errors"] == []
+    assert events == ["hub", "hermes", "restart"]
+
+
 def test_the_mcp_guard_checks_the_signed_rules_itself(client, pc):
     _publish(client, {"TOOL.md": TOOL, "server.py": SERVER}, "report-kit")
     access.set_agent_access(pc["agent_id"], overrides={
