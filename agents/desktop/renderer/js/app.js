@@ -9,6 +9,7 @@ import { ProjectsView } from './projects.js';
 import { CanvasView, isProject } from './canvas.js';
 import { Composer } from './composer.js';
 import { openMenu, toast } from './ui.js';
+import { ensureLoaded } from './session-load.mjs';
 
 const api = window.sysai;
 const $ = (id) => document.getElementById(id);
@@ -173,30 +174,43 @@ function selectConv(id) {
 }
 
 async function loadConv(conv) {
+  if (conv.loaded) return true;
   conv.loading = true;
-  drawThread();
-  try {
-    const res = await api.acp.request('session/load', conv.cwd ? { sessionId: conv.id, cwd: conv.cwd } : { sessionId: conv.id });
-    if (res && Array.isArray(res.configOptions)) conv.config = res.configOptions;
-    conv.loaded = true;
-  } catch (err) {
-    conv.notice(`Разговор не открылся: ${err.message}`, 'err');
-  } finally {
-    conv.loading = false;
-    if (S.current === conv.id) {
-      drawThread();
-      composer.setConversation(conv);
-      drawStatus();
-      S.stuck = true;
-      stick();
+  const pending = ensureLoaded(conv, async () => {
+    try {
+      const res = await api.acp.request('session/load', conv.cwd ? { sessionId: conv.id, cwd: conv.cwd } : { sessionId: conv.id });
+      if (res && Array.isArray(res.configOptions)) conv.config = res.configOptions;
+      conv.loaded = true;
+      return true;
+    } catch (err) {
+      conv.notice(`Разговор не открылся: ${err.message}`, 'err');
+      return false;
     }
+  });
+  drawThread();
+  const loaded = await pending;
+  conv.loading = false;
+  if (S.current === conv.id) {
+    drawThread();
+    composer.setConversation(conv);
+    drawStatus();
+    S.stuck = true;
+    stick();
   }
+  return loaded;
 }
 
 async function send({ text, files }) {
   let conv = current();
   try {
-    if (!conv || (!conv.loaded && !conv.draft)) conv = conv || await newDraft();
+    if (!conv) conv = await newDraft();
+    if (!conv.draft && !conv.loaded) {
+      const loaded = await loadConv(conv);
+      if (!loaded) {
+        toast('Сообщение не отправлено: не удалось восстановить историю разговора. Повторите отправку после повторного открытия.', 'err');
+        return false;
+      }
+    }
   } catch (err) {
     toast(`Сообщение не отправлено: ${err.message}`, 'err');
     return false;
