@@ -159,6 +159,9 @@ def test_the_tool_and_the_skill_pass_the_hub_check():
     body = files["SKILL.md"].decode("utf-8")
     assert all(x in body for x in ("plc-kit", "ebpro-cmtp", "plc_check", "plc_hmi_tags", "hub_propose", "plc_link",
                                    "plc_stage_update", "me_create", "me_update", "pics_find", "project-docs"))
+    assert "mcp__plc_kit__plc_stage_update" in body
+    assert "tool_describe" in body and "tool_call" in body
+    assert "Пустой результат поиска" in body and "отключение сервера не подтверждено" in body
     root = SEED.parent / "project-docs"
     files = {str(p.relative_to(root)).replace(os.sep, "/"): p.read_bytes() for p in root.rglob("*") if p.is_file()}
     meta, report = hub.check(files)
