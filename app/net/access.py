@@ -678,7 +678,10 @@ def render_hermes(agent: str, rules: dict, server: str, tools=None, cache=()) ->
     # the rules without such a tool (not in the hub, «по запросу» and not taken yet) would only be a broken server
     mcp = {}
     if "sysai" in rules["mcp"]:
-        mcp["sysai"] = {"url": f"{server}/mcp", "headers": {"Authorization": "Bearer ${SYSAI_AGENT_TOKEN}"}}
+        # An explicit User-Agent: Cloudflare in front of some hosts (Error 1010) denies requests that
+        # carry no User-Agent, and a reconnect/redirect path can drop the harness's identity header.
+        mcp["sysai"] = {"url": f"{server}/mcp", "headers": {"Authorization": "Bearer ${SYSAI_AGENT_TOKEN}",
+                                                            "User-Agent": "sysai-agent/0.4 (+https://github.com/vadzimchudzin/SYSAI)"}}
     hub_tools = []
     for tool in tools or []:
         spec = tool.get("spec") or {}
