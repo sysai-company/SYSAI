@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, desktop, fsutil, hermes, hubsync, paths, secret, signing, update
+from . import __version__, desktop, fsutil, hermes, hermes_patch, hubsync, paths, secret, signing, update
 from .client import ApiError, Client
 
 log = logging.getLogger("sysai_agent")
@@ -181,6 +181,9 @@ def sync_once(home: Path | None = None, transport=None, restart: bool = True) ->
     harness = doc.get("harness_config") or {}
     fsutil.write_json(home / "sysai.json", harness.get("sysai") or {})
     profile_dir = paths.hermes_profile_dir(cfg)
+    # Compatibility patch for Hermes MCP scope resolution under ACP editor sessions (see hermes_patch). Idempotent
+    # and re-applied after a Hermes update, so a fresh SYSAI install keeps the hub tools callable from the window.
+    report["hermes_patch"] = hermes_patch.ensure(profile_dir)
 
     # Install and verify the Hub before writing any local MCP server into Hermes config. Hermes treats a server
     # that exits during its initial connection as disconnected for the rest of the session.
