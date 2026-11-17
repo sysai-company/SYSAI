@@ -10,6 +10,7 @@ import { CanvasView, isProject } from './canvas.js';
 import { Composer } from './composer.js';
 import { openMenu, toast } from './ui.js';
 import { ensureLoaded } from './session-load.mjs';
+import { reserveSend, releaseSend } from './send-lock.mjs';
 
 const api = window.sysai;
 const $ = (id) => document.getElementById(id);
@@ -204,6 +205,16 @@ async function send({ text, files }) {
   let conv = current();
   try {
     if (!conv) conv = await newDraft();
+  } catch (err) {
+    toast(`Сообщение не отправлено: ${err.message}`, 'err');
+    return false;
+  }
+
+  // Reserve the conversation before the first await. Otherwise two sends waiting for session/load or
+  // attachment preparation can both pass the running check and start overlapping prompts.
+  if (!reserveSend(conv)) return false;
+  let started = false;
+  try {
     if (!conv.draft && !conv.loaded) {
       const loaded = await loadConv(conv);
       if (!loaded) {
@@ -211,51 +222,47 @@ async function send({ text, files }) {
         return false;
       }
     }
-  } catch (err) {
-    toast(`Сообщение не отправлено: ${err.message}`, 'err');
-    return false;
-  }
-  if (conv.running) return false;
-  const wasDraft = conv.draft;
-  // a big text file is named by its path, not linked: linked, its whole text would go into every next request
-  let attached;
-  let linked;
-  let urls;
-  try {
-    attached = files.length ? await api.fs.attachments(files) : { items: [], text: '' };
-    linked = attached.items.filter((x) => x.link).map((x) => x.path);
-    urls = await Promise.all(linked.map((p) => api.fs.url(p)));
+
+    const wasDraft = conv.draft;
+    // a big text file is named by its path, not linked: linked, its whole text would go into every next request
+    const attached = files.length ? await api.fs.attachments(files) : { items: [], text: '' };
+    const linked = attached.items.filter((x) => x.link).map((x) => x.path);
+    const urls = await Promise.all(linked.map((p) => api.fs.url(p)));
+    const said = attached.text ? `${text}${text ? '\\n\\n' : ''}${attached.text}` : text;
+    const prompt = [{ type: 'text', text: said }, ...linked.map((p, i) => ({ type: 'resource_link', uri: urls[i], name: basename(p) }))];
+    conv.addUser(text, files.map((p) => ({ name: basename(p), path: p })));
+    conv.start();
+    started = true;
+    releaseSend(conv);
+
+    if (wasDraft) {
+      S.draft = '';
+      S.sessions.unshift({ sessionId: conv.id, title: text.slice(0, 80) || basename(files[0] || ''), updatedAt: new Date().toISOString(), local: true,
+        cwd: conv.cwd || '' });
+      if (!conv.title) conv.title = '';
+      localStorage.setItem('sysai.session.last', conv.id);
+    }
+    touch(conv.id);
+    const inProject = projectOf(conv.cwd);
+    if (inProject) api.projects.dialog(inProject.name, { id: conv.id, title: text.slice(0, 80) || basename(files[0] || '') }).catch(() => {});
+    S.stuck = true;
+    drawThread();
+    drawTop();
+    try {
+      const res = await api.acp.request('session/prompt', { sessionId: conv.id, prompt });
+      conv.finish(res && res.stopReason);
+    } catch (err) {
+      conv.finish(null, err.message || String(err));
+    }
+    touch(conv.id);
+    return true;
   } catch (err) {
     toast(err.message, 'err');
     return false;
+  } finally {
+    if (!started) releaseSend(conv);
   }
-  const said = attached.text ? `${text}${text ? '\n\n' : ''}${attached.text}` : text;
-  const prompt = [{ type: 'text', text: said }, ...linked.map((p, i) => ({ type: 'resource_link', uri: urls[i], name: basename(p) }))];
-  conv.addUser(text, files.map((p) => ({ name: basename(p), path: p })));
-  conv.start();
-  if (wasDraft) {
-    S.draft = '';
-    S.sessions.unshift({ sessionId: conv.id, title: text.slice(0, 80) || basename(files[0] || ''), updatedAt: new Date().toISOString(), local: true,
-      cwd: conv.cwd || '' });
-    if (!conv.title) conv.title = '';
-    localStorage.setItem('sysai.session.last', conv.id);
-  }
-  touch(conv.id);
-  const inProject = projectOf(conv.cwd);
-  if (inProject) api.projects.dialog(inProject.name, { id: conv.id, title: text.slice(0, 80) || basename(files[0] || '') }).catch(() => {});
-  S.stuck = true;
-  drawThread();
-  drawTop();
-  try {
-    const res = await api.acp.request('session/prompt', { sessionId: conv.id, prompt });
-    conv.finish(res && res.stopReason);
-  } catch (err) {
-    conv.finish(null, err.message || String(err));
-  }
-  touch(conv.id);
-  return true;
 }
-
 function stop() {
   const conv = current();
   if (!conv || !conv.running) return;
