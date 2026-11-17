@@ -126,6 +126,26 @@ test('session restore is shared by selection and send, and failed loads can retr
   assert.equal(attempts, 2, 'a failed restore does not poison the next retry');
 });
 
+test('only one send can reserve a conversation while async preparation is pending', async () => {
+  const { reserveSend, releaseSend } = await import('../renderer/js/send-lock.mjs');
+  const conv = { running: false, sending: false };
+  let finish;
+  const first = (async () => {
+    if (!reserveSend(conv)) return false;
+    await new Promise((resolve) => { finish = resolve; });
+    releaseSend(conv);
+    return true;
+  })();
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reserveSend(conv), false, 'a second send cannot enter while the first is awaiting');
+  finish();
+  assert.equal(await first, true);
+  assert.equal(reserveSend(conv), true, 'a new send is allowed after the first reservation is released');
+  releaseSend(conv);
+  assert.equal(reserveSend({ running: true, sending: false }), false, 'an already-running conversation stays blocked');
+});
+
 test('hermes.cmd goes through cmd.exe with the arguments quoted', () => {
   const line = commandLine('C:\\Program Files\\hermes\\hermes.cmd', ['-p', 'ivan', 'acp'], 'win32');
   assert.equal(line.verbatim, true);
