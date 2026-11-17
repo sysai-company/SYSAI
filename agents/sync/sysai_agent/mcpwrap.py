@@ -59,7 +59,10 @@ class Guard:
             self.mtime = mtime
             signed = fsutil.read_json(self.file, None)
             ok = self.agent.get("public_key") and signing.verify(signed, self.agent["public_key"], self.agent.get("key_id", ""))
-            self.rules = signed["doc"]["rules"] if ok else None
+            try:
+                self.rules = signed["doc"]["rules"] if ok else None
+            except (KeyError, TypeError):  # a signed doc without «rules»: not trusted, but the wrapper must not crash
+                self.rules = None
         return self.rules
 
     def server_allowed(self) -> bool:
@@ -183,9 +186,8 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
             try:
                 msg = json.loads(line)
             except ValueError:
-                with lock:
-                    stdout.write(line)
-                    stdout.flush()
+                # a print or a traceback of the tool is not JSON-RPC: dropped, not forwarded raw — raw bytes of another
+                # code page would break Hermes' reader on Windows exactly like the arrow once did
                 continue
             if isinstance(msg, dict) and msg.get("id") in lists and isinstance(msg.get("result"), dict):
                 lists.discard(msg.get("id"))
@@ -215,16 +217,32 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                     lists.add(item["id"])
                 if method == "tools/call":
                     params = item.get("params") if isinstance(item.get("params"), dict) else {}
-                    why = guard.check_call(str(params.get("name") or ""), params.get("arguments") or {})
+                    try:
+                        why = guard.check_call(str(params.get("name") or ""), params.get("arguments") or {})
+                    except Exception as exc:  # noqa: BLE001 — a broken rule answers with an error, it must not drop the connection
+                        why = f"внутренняя ошибка проверки доступов SYSAI: {exc}"
                     if why:
                         if "id" in item:
                             say(_error(item["id"], why))
                         continue
                 forward.append(item)
-            if forward and proc.poll() is None:
+            if not forward:
+                continue
+            if proc.poll() is not None:
+                # the tool exited: a clear answer instead of silence, then close — Hermes marks it and the window restarts
+                for item in forward:
+                    if isinstance(item, dict) and "id" in item:
+                        say(_error(item["id"], f"инструмент {name} завершился (код {proc.returncode}): перезапустите окно «Агент SYSAI»"))
+                break
+            try:
                 out = forward if isinstance(msg, list) else forward[0]
                 proc.stdin.write(json.dumps(out, ensure_ascii=False).encode("utf-8") + b"\n")
                 proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                for item in forward:
+                    if isinstance(item, dict) and "id" in item:
+                        say(_error(item["id"], f"инструмент {name} недоступен (соединение закрыто): перезапустите окно «Агент SYSAI»"))
+                break
     except (BrokenPipeError, OSError):
         pass
     finally:
