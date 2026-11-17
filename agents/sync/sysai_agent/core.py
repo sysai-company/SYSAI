@@ -135,7 +135,7 @@ def _filter_unready_hub_mcp(harness: dict, manifest: dict, state: dict, home: Pa
     for name, config in list(servers.items()):
         if not isinstance(config, dict):
             continue
-        command = str(config.get("command") or "").replace("\\\\", "/").rsplit("/", 1)[-1].lower()
+        command = str(config.get("command") or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
         args = config.get("args") if isinstance(config.get("args"), list) else []
         # Only gate local SYSAI wrappers. Remote URL-based MCP servers (including the built-in «sysai») do not
         # depend on the local Hub tools directory.
@@ -153,7 +153,7 @@ def _filter_unready_hub_mcp(harness: dict, manifest: dict, state: dict, home: Pa
 
 
 def sync_once(home: Path | None = None, transport=None, restart: bool = True) -> dict:
-    """Everything once: the rules (signature checked) → the Hermes profile; the hub; proposals; the pulse."""
+    """Everything once: signed rules → Hub install/verification → Hermes profile → proposals → pulse."""
     home = Path(home or paths.home())
     cfg = load_agent(home)
     client, token = client_for(home, cfg, transport)
@@ -224,6 +224,11 @@ def sync_once(home: Path | None = None, transport=None, restart: bool = True) ->
         state["applied_at"] = now()
     if report["changed"] or (report["hub"] or {}).get("changed") or (report["hub"] or {}).get("removed"):
         state["restart_pending"] = True
+    state["synced_at"] = now()
+    state["error"] = "; ".join(report["errors"])[:2000]
+    # mcpwrap reads state.json when Hermes starts a local MCP process. Persist the verified Hub tool records before
+    # restarting the gateway; otherwise the wrapper can still see the previous state and exit as «not connected».
+    fsutil.write_json(home / "state.json", state)
     if state.get("restart_pending") and not hermes.gateway_running(profile_dir):
         state.pop("restart_pending", None)  # nothing to restart: Hermes reads the new settings when it starts
         report["restart"] = "шлюз Hermes не запущен: новые настройки он возьмёт при запуске"
@@ -234,8 +239,6 @@ def sync_once(home: Path | None = None, transport=None, restart: bool = True) ->
             state.pop("restart_pending", None)
         else:
             log.info("Hermes не перезапущен (%s): попробую при следующей синхронизации", said)
-    state["synced_at"] = now()
-    state["error"] = "; ".join(report["errors"])[:2000]
     try:
         report["pulse"] = pulse(home, client, state)
     except ApiError as exc:
