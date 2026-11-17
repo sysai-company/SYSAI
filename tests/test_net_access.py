@@ -195,6 +195,9 @@ def test_the_character_of_the_agents_soul(client, net_agent):
     # how the tools are reached is not a matter of character: it stays whatever the text of the network is
     for soul_text in (text, after["doc"]["soul"]):
         assert "## Инструменты SYSAI" in soul_text and "tool_search" in soul_text and "не авторизуй" in soul_text
+        assert "available_sources" in soul_text and "tool_describe" in soul_text and "tool_call" in soul_text
+        assert "Пустой результат поиска" in soul_text and "явную ошибку соединения/транспорта" in soul_text
+        assert "mcp__plc_kit__plc_stage_update" in soul_text
     assert after["rev"] != doc["rev"] and soul.texts()["common"] == "Отвечай коротко."
     page = client.get(f"/agents/{net_agent['id']}").text
     assert "SOUL.md" in page and "Отвечай коротко." in page
