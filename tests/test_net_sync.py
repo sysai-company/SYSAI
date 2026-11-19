@@ -695,13 +695,13 @@ def test_the_synchronizer_updates_itself_only_to_the_wheel_sysai_signed(pc, monk
 
 
 def test_windows_installer_is_downloadable_from_agent_page(client, net_agent):
-    for path in ('/agents', f"/agents/{net_agent['id']}"):
-        page = client.get(path)
-        assert page.status_code == 200
-        if path == '/agents':
-            assert '/agents/download/install.ps1' in page.text
+    page = client.get('/agents')
+    assert page.status_code == 200
+    assert '/agents/download/SYSAI-Setup.exe' in page.text  # one click: a real .exe, not only a script
+    assert client.get(f"/agents/{net_agent['id']}").status_code == 200
     page = client.post(f"/agents/{net_agent['id']}/connect").text
     assert '/agents/download/install.ps1' in page
+    assert f"/agents/{net_agent['id']}/setup.exe?code=" in page  # the same .exe with this code inside
     r = client.get('/agents/download/install.ps1')
     assert r.status_code == 200 and 'SYSAI-install.ps1' in r.headers['content-disposition']
     assert r.content.startswith(b'\xef\xbb\xbf')  # Windows PowerShell 5.1 decodes Cyrillic correctly

@@ -305,7 +305,10 @@ SYSAI (сервер)
   Нужен ключ OpenRouter с лимитом (или шлюз из этапа 5).
 
 **ОПО-6.2 · Установщик** · M · ИИ · ✅ код готов — проверить на чистом Windows-ПК
-- Одна строка PowerShell со страницы агента («Получить код подключения»):
+- Один файл `SYSAI-Setup.exe` со страницы агентов («Скачать установщик (.exe)») или из карточки агента — там в файл
+  уже вложены адрес сервера и одноразовый код: на ПК остаётся двойной щелчок. Загрузчик — `agents/installer/bootstrapper.c`
+  (44 КБ, mingw), блок настроек подставляет `app/net/installer.py:exe()`.
+- Или одна строка PowerShell со страницы агента («Получить код подключения»):
   `$env:SYSAI_CODE='КОД'; irm <SYSAI>/agents/api/install.ps1 | iex` — обычный PowerShell, без администратора,
   Windows PowerShell 5.1 и новее. Скрипт — `agents/installer/install.ps1`, SYSAI подставляет свой адрес и версию.
 - Ставит uv (Astral), синхронизатор (`uv tool install` колеса `/agents/api/sync/sysai_agent-<версия>-py3-none-any.whl`,
