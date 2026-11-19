@@ -145,6 +145,22 @@ TOOLS = [
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
+        "name": "cmtp_index",
+        "title": "Индекс экранов",
+        "description": "Каталог всего проекта сразу: окна (номер, имя, размер, сколько объектов и каких), каждый объект "
+                       "с подписями, тегами и sha256 записи, каждая картинка с sha256 и где она стоит. Нужен, чтобы "
+                       "искать по всем экранам разом, а не читать их по одному: query — подстрока в подписи, теге или "
+                       "виде объекта; kind и window сужают; limit/offset листают объекты (next_offset — следующая "
+                       "страница). Одинаковый sha256 у объекта в двух версиях проекта — объект не менялся.",
+        "inputSchema": {"type": "object", "properties": {"path": PATH,
+                        "query": {"type": "string", "description": "Подстрока в подписи, теге или виде объекта"},
+                        "kind": {"type": "string", "description": "Только объекты этого вида, например ToggleSwitch"},
+                        "window": {"type": "string", "description": "Только это окно: имя или номер"},
+                        "limit": LIMIT, "offset": OFFSET},
+                        "required": ["path"], "additionalProperties": False},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
         "name": "cmtp_tags",
         "title": "Теги OPC UA",
         "description": "Таблица тегов OPC UA проекта (что HMI читает из ПЛК): имя, тип (BOOL, INT, UINT, UDINT…), "
@@ -482,6 +498,16 @@ def _call(name, args):
             rows = [{"number": w["number"], "name": w["name"], "width": w["width"], "height": w["height"],
                      "objects": len(w["objects"])} for w in p.windows() if not flt or flt in w["name"].lower()]
             return _text(json.dumps({"count": len(rows), "windows": rows}, ensure_ascii=False))
+        if name == "cmtp_index":
+            p = _load(args["path"])
+            r = ebpedit.index_project(p, args.get("query") or "", args.get("kind") or "", args.get("window"),
+                                      int(args.get("limit") or 200), int(args.get("offset") or 0))
+            c = r["counts"]
+            head = (f"Индекс {os.path.basename(args['path'])}: окон {c['windows']}, объектов {c['objects']}, "
+                    f"картинок {c['images']}")
+            if r.get("next_offset"):
+                head += f"; показаны объекты {int(args.get('offset') or 0)}–{r['next_offset']} (next_offset)"
+            return dict(_text(head), structuredContent=r)
         if name == "cmtp_objects":
             p = _load(args["path"])
             w = p.window(args["window"])
@@ -783,7 +809,7 @@ def _handle(msg):
         if method == "initialize":
             _out({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": str(params.get("protocolVersion") or PROTOCOL),
                   "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.9.0"},
+                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.10.0"},
                   "instructions": INSTRUCTIONS}})
         elif method == "ping":
             _out({"jsonrpc": "2.0", "id": mid, "result": {}})

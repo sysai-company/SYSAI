@@ -1015,3 +1015,53 @@ def check(p: Project, window=None) -> list:
                 if g in known and g not in groups:
                     add('error', w, o['index'], 'picture_missing', 'a file of its picture is not in the library')
     return out
+
+
+# -- the catalogue of the whole project -------------------------------------------------------------------------------
+def index_project(p: Project, query: str = "", kind: str = "", window=None, limit: int = 200, offset: int = 0) -> dict:
+    """A catalogue of the whole project: every window, every object with its labels and tags, every picture by sha256.
+
+    The agent searches all screens at once instead of reading them one by one: `query` matches a label, a tag or a
+    kind (case-insensitive), `kind` and `window` narrow it, `limit`/`offset` page the objects. The sha256 of an object
+    is the hash of its record — the same object in two versions of a project has the same hash."""
+    pay = p.payload
+    q = (query or "").strip().lower()
+    want = (kind or "").strip().lower()
+    only = None if window in (None, "") else p.window(window)['number']
+    windows, objects, images = [], [], {}
+    for w in p.windows():
+        kinds = collections.Counter(o['kind'] for o in w['objects'] if o['kind'] != 'Window')
+        windows.append({'number': w['number'], 'name': w['name'], 'width': w['width'], 'height': w['height'],
+                        'objects': len(w['objects']) - 1, 'kinds': dict(kinds)})
+        for o in w['objects']:
+            if o['kind'] == 'Window':
+                continue
+            labels = [lab['text'] for lab in o.get('labels') or [] if lab.get('text')]
+            tags = sorted({opc_tag_name(t) for _, _, t in o.get('_addr') or [] if opc_tag_name(t)})
+            for st in o.get('picture') or ():
+                images.setdefault(st['image'], {'key': st['image'], 'used_in': []})['used_in'].append(
+                    {'window': w['number'], 'object': o['index']})
+            if only is not None and w['number'] != only:
+                continue
+            if want and o['kind'].lower() != want:
+                continue
+            if q and not any(q in s.lower() for s in labels + tags + [o['kind']]):
+                continue
+            objects.append({'window': w['number'], 'window_name': w['name'], 'index': o['index'], 'kind': o['kind'],
+                            'labels': labels, 'tags': tags, 'bbox': o.get('bbox'),
+                            'sha256': hashlib.sha256(pay[o['offset']:o['offset'] + o['length']]).hexdigest()[:16]})
+    lib = p.pictures()
+    for key, info in images.items():
+        pic = lib.get(key)
+        if pic:
+            data = pay[pic['offset']:pic['offset'] + pic['length']]
+            info.update({'format': pic['format'], 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()[:16]})
+        else:
+            info.update({'format': '', 'bytes': 0, 'sha256': ''})
+    total = len(objects)
+    page = objects[offset:offset + max(1, int(limit))]
+    out = {'windows': windows, 'objects': page, 'images': sorted(images.values(), key=lambda x: x['key']),
+           'counts': {'windows': len(windows), 'objects': total, 'images': len(images)}}
+    if offset + len(page) < total:
+        out['next_offset'] = offset + len(page)
+    return out

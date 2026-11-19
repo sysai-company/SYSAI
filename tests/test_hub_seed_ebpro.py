@@ -20,7 +20,8 @@ sys.path.insert(0, str(SEED))
 import ebpcmtp  # noqa: E402
 
 TOOLS = ["cmtp_info", "cmtp_new", "cmtp_labels", "cmtp_extract_images", "cmtp_unpack", "cmtp_pack", "cmtp_relabel",
-         "cmtp_windows", "cmtp_objects", "cmtp_tags", "cmtp_scene", "cmtp_links", "cmtp_check", "cmtp_render", "cmtp_edit"]
+         "cmtp_windows", "cmtp_objects", "cmtp_index", "cmtp_tags", "cmtp_scene", "cmtp_links", "cmtp_check",
+         "cmtp_render", "cmtp_edit"]
 
 
 def _png(rgba=(255, 0, 0, 255)) -> bytes:
@@ -514,7 +515,7 @@ def test_mcp_server_over_stdio(tmp_path):
 
     try:
         assert rpc(1, "initialize", {"protocolVersion": "2025-06-18"})["result"]["serverInfo"] == {
-            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.9.0"}
+            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.10.0"}
         assert [t["name"] for t in rpc(2, "tools/list")["result"]["tools"]] == TOOLS
         err, text = call(3, "cmtp_info", path=str(src))
         info = json.loads(text)
@@ -805,6 +806,37 @@ def test_objects_that_define_a_widget_class_are_moved_out_of_the_start_window():
         assert w["objects"][o["index"]]["bbox"][0] > w["width"], "объект уведён за правый край окна"
     assert q.payload.count(b"\x0f\x80" + bytes(14)) == classes, "нумерация классов не изменилась"
     assert len(w["objects"]) == len(p.window(0)["objects"]), "объекты остались в проекте"
+
+
+def test_the_index_lists_every_window_object_and_picture_with_a_hash():
+    """П4: каталог всего проекта сразу — окна, объекты с подписями и тегами, картинки с sha256."""
+    p = _menu_project()
+    r = ebpedit.index_project(p)
+    assert r["counts"]["windows"] == 3
+    assert r["counts"]["objects"] == sum(len(w["objects"]) - 1 for w in p.windows())
+    assert [w["number"] for w in r["windows"]] == [0, 1, 2]
+    assert r["windows"][0]["kinds"]["FunctionKey"] == 2
+    assert all(len(o["sha256"]) == 16 for o in r["objects"])
+    hit = ebpedit.index_project(p, query="уставки")
+    assert hit["objects"] and all("уставки" in " ".join(o["labels"]).lower() for o in hit["objects"])
+    assert ebpedit.index_project(p, kind="FunctionKey")["counts"]["objects"] == 4
+    assert ebpedit.index_project(p, window="Нория 1")["counts"]["objects"] == 3
+    page = ebpedit.index_project(p, limit=2)
+    assert len(page["objects"]) == 2 and page["next_offset"] == 2
+    # тот же объект в копии проекта — тот же sha256: по нему видно, что менялось между версиями
+    q = ebpcmtp.Project.load(p.dump())
+    assert [o["sha256"] for o in ebpedit.index_project(q)["objects"]] == [o["sha256"] for o in r["objects"]]
+
+
+def test_the_index_tool_answers_with_a_catalogue(tmp_path):
+    import server
+    p = _menu_project()
+    f = tmp_path / "p.cmtp"
+    p.save(str(f))
+    res = server._call("cmtp_index", {"path": str(f), "query": "нория"})
+    assert not res.get("isError")
+    assert res["structuredContent"]["counts"]["windows"] == 3
+    assert res["structuredContent"]["objects"]
 
 
 def test_settings_reference_shadow_and_coinciding_data_do_not_block_an_edit():

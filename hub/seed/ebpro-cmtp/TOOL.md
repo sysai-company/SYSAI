@@ -1,11 +1,11 @@
 ---
 name: ebpro-cmtp
 kind: mcp
-description: Читает, рисует и собирает проекты Weintek EasyBuilder Pro (.cmtp/.emtp) без EasyBuilder — окна, объекты, теги OPC UA, меню (какая кнопка какое окно открывает), картинки; PNG окна как на панели; проверка (за краем, не влезает текст, кнопка в никуда, тега нет); правки в новый файл — тексты, сдвиг, размер, теги, копии и удаление окон и объектов, кнопки на окна, новые теги, окна и объекты из проекта-донора. Основа навыков ebpro-project, ebpro-donor, ebpro-team и холста окна «Агент SYSAI».
-version: 1.9.0
+description: Читает, рисует и собирает проекты Weintek EasyBuilder Pro (.cmtp/.emtp) без EasyBuilder — окна, объекты, теги OPC UA, меню (какая кнопка какое окно открывает), картинки; PNG окна как на панели; проверка (за краем, не влезает текст, кнопка в никуда, тега нет); правки в новый файл — тексты, сдвиг, размер, теги, копии и удаление окон и объектов, кнопки на окна, новые теги, окна и объекты из проекта-донора. Индекс экранов — каталог всего проекта сразу (окна, объекты с подписями и тегами, картинки с sha256) для поиска по всем экранам разом. Основа навыков ebpro-project, ebpro-donor, ebpro-team и холста окна «Агент SYSAI».
+version: 1.10.0
 run: python server.py
 platform: any
-tools: cmtp_info, cmtp_new, cmtp_labels, cmtp_extract_images, cmtp_unpack, cmtp_pack, cmtp_relabel, cmtp_windows, cmtp_objects, cmtp_tags, cmtp_scene, cmtp_links, cmtp_check, cmtp_render, cmtp_edit
+tools: cmtp_info, cmtp_new, cmtp_labels, cmtp_extract_images, cmtp_unpack, cmtp_pack, cmtp_relabel, cmtp_windows, cmtp_objects, cmtp_index, cmtp_tags, cmtp_scene, cmtp_links, cmtp_check, cmtp_render, cmtp_edit
 requires: python>=3.11
 ---
 # EasyBuilder Pro: проекты .cmtp / .emtp
@@ -71,6 +71,26 @@ requires: python>=3.11
 Сборка: `cmtp_edit` со списком правок → новый файл; исходник не меняется. Номера окон — из `cmtp_windows`
 (`number`), номера объектов — из `cmtp_objects` (`index`) или с картинки `cmtp_render` с `marks`; после копий и
 удалений смотри их заново. В конце — `cmtp_check` и `cmtp_render` изменённых окон.
+
+## Индекс экранов (cmtp_index)
+
+Каталог всего проекта сразу — чтобы искать по всем экранам разом, а не читать их по одному:
+
+```json
+{"windows": [{"number": 10, "name": "Главное", "width": 1920, "height": 1080, "objects": 42,
+              "kinds": {"Text": 12, "FunctionKey": 8}}],
+ "objects": [{"window": 10, "window_name": "Главное", "index": 3, "kind": "Text",
+              "labels": ["Нория 1"], "tags": ["GVL.A"], "bbox": [10, 20, 200, 60], "sha256": "9f2c…"}],
+ "images":  [{"key": "aa11", "format": "png", "bytes": 1234, "sha256": "1b7e…",
+              "used_in": [{"window": 10, "object": 4}]}],
+ "counts":  {"windows": 85, "objects": 2864, "images": 37}, "next_offset": 200}
+```
+
+- `query` — подстрока в подписи, теге или виде объекта (регистр не важен); `kind` и `window` сужают.
+- `limit`/`offset` листают объекты; `next_offset` в ответе — следующая страница.
+- `sha256` объекта — хеш его записи: одинаковый у того же объекта в двух версиях проекта, значит объект не менялся.
+  Так сравнивают «что поменялось между версиями», не читая окна целиком.
+- `sha256` картинки — хеш её байтов; `used_in` — где она стоит.
 
 ## Объекты окна (cmtp_objects)
 
