@@ -603,8 +603,19 @@ class Canvas extends EventEmitter {
     const dir = path.join(this.cache, 'img', crypto.createHash('sha1').update(this.file.toLowerCase()).digest('hex').slice(0, 12));
     let scene;
     try {
-      const { text } = await this._tool().call('cmtp_scene', { path: this.file, window: String(this.window), images_dir: dir });
-      scene = JSON.parse(text);
+      const args = { path: this.file, window: String(this.window), images_dir: dir, limit: 1000 };
+      scene = null;
+      for (let offset = 0; ;) {
+        const { text } = await this._tool().call('cmtp_scene', offset ? { ...args, offset } : args);
+        const part = JSON.parse(text);
+        if (!scene) scene = part;
+        else {
+          scene.objects = scene.objects.concat(part.objects || []);
+          scene.images = { ...(scene.images || {}), ...(part.images || {}) };
+        }
+        if (!Number.isInteger(part.next_offset) || part.next_offset <= offset) break;
+        offset = part.next_offset;
+      }
     } catch (err) {
       this.error = err.message;
       throw err;
