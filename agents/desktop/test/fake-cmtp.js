@@ -97,7 +97,12 @@ function call(name, args) {
     }
     if (name === 'cmtp_scene') {
       const w = win(p, args.window);
-      const objects = w.objects.map((o, index) => ({ index, ...o }));
+      const all = w.objects.map((o, index) => ({ index, ...o }));
+      // FAKE_CMTP_PAGE — отдавать окно страницами, как настоящий cmtp_scene: limit/offset и next_offset
+      const page = Number(process.env.FAKE_CMTP_PAGE || 0);
+      const offset = Number(args.offset || 0);
+      const limit = page || Number(args.limit || 0) || all.length;
+      const objects = all.slice(offset, offset + limit);
       const images = {};
       for (const o of objects) {
         for (const st of o.picture || []) {
@@ -108,8 +113,10 @@ function call(name, args) {
           fs.writeFileSync(images[st.key], 'png');
         }
       }
-      return text(JSON.stringify({ window: { number: w.number, name: w.name, width: w.width, height: w.height,
-        background: w.background || null }, objects, images }));
+      const out = { window: { number: w.number, name: w.name, width: w.width, height: w.height,
+        background: w.background || null }, objects, images };
+      if (page && offset + limit < all.length) out.next_offset = offset + limit;
+      return text(JSON.stringify(out));
     }
     if (name === 'cmtp_edit') return edit(p, args);
   } catch (err) {

@@ -492,6 +492,19 @@ const until = async (fn, ms = 4000) => {
   }
 };
 
+test('canvas: a window is read to the last page, not only the first', async () => {
+  // cmtp_scene отдаёт окно страницами (limit/offset, next_offset): холст обязан пройти все, иначе на экране
+  // только первые объекты — так и было до 16e0a9b, и теста на это не было
+  const { file, cv } = canvasHome({ FAKE_CMTP_PAGE: '2' });
+  try {
+    const got = await cv.open(file);
+    assert.equal(got.objects, 4, 'все объекты окна, а не первая страница');
+    const st = cv.state();
+    assert.deepEqual(st.scene.objects.map((o) => o.index), [0, 1, 2, 3, 4]);
+    assert.equal(st.scene.objects[4].picture[0].key, 'aa11', 'картинка с последней страницы тоже здесь');
+  } finally { cv.stop(); }
+});
+
 test('canvas: opens a project at window 10, with its pictures as file URLs', async () => {
   const { file, cv, events } = canvasHome();
   try {
