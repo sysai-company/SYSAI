@@ -333,8 +333,12 @@ export class Conversation {
   _drawTool(t) {
     const d = describeTool(t.data);
     const st = t.data.status;
-    t.el.className = `tool ${st || ''}`;
+    // a hub server answers a failed call as a result («ОШИБКА (plc-kit/…): …») so that Hermes does not pause it:
+    // the call is done, the server is alive, the agent fixes the arguments — shown as a warning, not as a check mark
+    const answered = st === 'completed' && answeredError(t.data);
+    t.el.className = `tool ${st || ''}${answered ? ' answered-error' : ''}`;
     const status = st === 'in_progress' || st === 'pending' && this.running ? h('span', { class: 'spinner' })
+      : answered ? h('span', { class: 'warn-ic', title: 'Инструмент ответил ошибкой — сервер работает, агент исправляет вызов' }, icon('alert', 'sm'))
       : st === 'completed' ? icon('check', 'sm') : st === 'failed' ? icon('alert', 'sm') : icon('dot', 'sm');
     t.row.replaceChildren(h('span', { class: 'k' }, icon(d.icon)), h('span', { class: 'label', text: d.label }),
       h('span', { class: 'detail', text: d.detail, title: d.detail }), h('span', { class: 'st' }, status));
@@ -538,4 +542,12 @@ function pathOf(uri) {
   let p = decodeURIComponent(s.replace(/^file:\/\/(localhost)?/i, ''));
   if (/^\/[a-zA-Z]:\//.test(p)) p = p.slice(1).replace(/\//g, '\\');
   return p;
+}
+
+export function answeredError(d) {
+  const texts = [];
+  for (const c of (d && d.content) || []) if (c && c.type === 'content') texts.push(textOf(c.content) || '');
+  if (d && typeof d.rawOutput === 'string') texts.push(d.rawOutput);
+  else if (d && d.rawOutput && typeof d.rawOutput === 'object') texts.push(String(d.rawOutput.result || ''));
+  return texts.some((x) => /^[\s{"]*(result"\s*:\s*")?ОШИБКА \(/.test(String(x).slice(0, 200)));
 }
