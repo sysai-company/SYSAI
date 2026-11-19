@@ -3,6 +3,7 @@
 The fixture is a small project written by hand in the same XML the real one uses, so the test does not need
 the 1479-file Dostoevo project on disk. The real project is checked separately by `scripts/oni_report.py`.
 """
+import importlib.util
 import json
 import subprocess
 import sys
@@ -12,9 +13,18 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 KIT = ROOT / "hub" / "seed" / "plc-kit"
-sys.path.insert(0, str(KIT))
 
-import oniproj  # noqa: E402
+
+def _load(name, path):
+    """Load a module by path without touching sys.path: several seed folders have a `server.py`, and a path
+    left in sys.path makes another test file import the wrong one."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+oniproj = _load("oniproj", KIT / "oniproj.py")
 
 NS = "http://schemas.flexem.com/fs/model/1"
 XSI = "http://www.w3.org/2001/XMLSchema-instance"

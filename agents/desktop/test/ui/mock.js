@@ -102,9 +102,24 @@
       sessionId: 's-work',
       message: 'В каком формате сохранить программу ПЛК?',
       requestedSchema: { type: 'object', properties: { answer: { type: 'string',
-        enum: ['Machine Expert', 'Haiwell Happy', 'ONI'],
-        'x-icons': { 'Machine Expert': 'img/format-me.svg', 'Haiwell Happy': 'img/format-hawell.svg',
-                     'ONI': 'img/format-oni.svg' } } } },
+        enum: ['Machine Expert', 'Haiwell Happy'],
+        'x-icons': { 'Machine Expert': 'img/format-me.svg', 'Haiwell Happy': 'img/format-hawell.svg' } } } },
     } }), 900);
+  }
+  if (scene === 'panel') {    // экраны: сначала формат панели, потом разрешение — панели разные
+    setTimeout(() => emit('acp:request', { id: 9002, method: 'elicitation/create', params: {
+      sessionId: 's-work',
+      message: 'В каком формате рисовать экраны?',
+      requestedSchema: { type: 'object', properties: { answer: { type: 'string',
+        enum: ['ONI', 'EasyBuilder'],
+        'x-icons': { 'ONI': 'img/format-oni.svg', 'EasyBuilder': 'img/format-easybuilder.svg' } } } },
+    } }), 600);
+    setTimeout(() => emit('acp:request', { id: 9003, method: 'elicitation/create', params: {
+      sessionId: 's-work',
+      message: 'Под какое разрешение рисовать экраны? Панели разные — экран под 1024×768 на 800×480 не влезает.',
+      requestedSchema: { type: 'object', properties: { answer: { type: 'string',
+        enum: ['800×480 — 7" панель', '1024×600 — 7" широкая', '1024×768 — 10,4"/12,1"',
+               '1280×800 — 10,1"', '1366×768 — 15"', '1920×1080 — 15"/21,5"'] } } },
+    } }), 1400);
   }
 })();

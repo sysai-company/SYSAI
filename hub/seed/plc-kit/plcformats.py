@@ -24,7 +24,7 @@ FORMATS = (
      "read": True, "write": False,
      "note": "экраны читаются: проект — папка с <имя>.fsprj и HMI/Frame/**/*.wcfg, окна и объекты это открытый "
              "XML (45 окон и 1206 объектов Достоево разобраны). Запись .wcfg ещё не сделана"},
-    {"id": "easybuilder", "title": "EasyBuilder", "kind": "hmi", "icon": "img/format-me.svg", "ext": ".cmtp",
+    {"id": "easybuilder", "title": "EasyBuilder", "kind": "hmi", "icon": "img/format-easybuilder.svg", "ext": ".cmtp",
      "read": True, "write": True,
      "note": "экраны Weintek: ebpro-cmtp читает и правит проект .cmtp (окна, объекты, картинки)"},
 )
