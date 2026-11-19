@@ -146,6 +146,8 @@ def _error(msg_id, text: str) -> dict:
 # the server stopped answering and gave up. So a call that failed is answered as a result whose text says so; only the
 # same call failing the same way again and again (a loop) keeps isError and lets Hermes stop it.
 REPEATS = 3
+RESTARTS, RESTART_WINDOW = 3, 60  # a tool that died is started again, but not in an endless loop
+REINIT = "sysai-reinit-"
 
 
 def _failed_text(name: str, text: str, tool: str) -> str:
@@ -224,13 +226,12 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
         sys.stderr.write(f"SYSAI: {exc}\n")
         return 2
     env = {**os.environ, "SYSAI_HOME": str(home), "SYSAI_TOOL_DIR": str(folder)}
-    # not in the folder of the tool: a program working in a folder keeps Windows from renaming it
-    proc = subprocess.Popen(args, cwd=str(home), stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env,
-                            creationflags=0x08000000 if paths.WINDOWS else 0)
     lock = threading.Lock()
     lists = set()  # ids of tools/list requests: their answers are filtered
-    calls = {}     # id of a tools/call forwarded to the tool → (tool name, key of the call)
+    calls = {}     # id of a tools/call -> [tool name, key of the call, the process it was sent to]
     repeats = Repeats()
+    hello = {}     # the harness's «initialize» and «notifications/initialized»: replayed to a restarted tool
+    box = {"proc": None, "restarts": []}
 
     def refuse(msg_id, tool: str, args, text: str) -> None:
         say(_failed(msg_id, name, tool, text, repeats.failed(_call_key(tool, args))))
@@ -240,7 +241,7 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
             stdout.write(json.dumps(obj).encode("ascii") + b"\n")  # ASCII only: Hermes on Windows reads it with a locale code page that has no arrows
             stdout.flush()
 
-    def upstream() -> None:
+    def upstream(proc) -> None:
         for line in proc.stdout:
             try:
                 msg = json.loads(line)
@@ -248,9 +249,11 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                 # a print or a traceback of the tool is not JSON-RPC: dropped, not forwarded raw — raw bytes of another
                 # code page would break Hermes' reader on Windows exactly like the arrow once did
                 continue
+            if isinstance(msg, dict) and str(msg.get("id") or "").startswith(REINIT):
+                continue  # the answer to the replayed handshake of a restarted tool: Hermes did not ask for it
             call = calls.pop(msg.get("id"), None) if isinstance(msg, dict) and msg.get("id") is not None else None
             if call is not None:
-                tool, key = call
+                tool, key = call[0], call[1]
                 if isinstance(msg.get("error"), dict) or "result" not in msg:  # the tool raised: an answer, not a strike
                     err = msg.get("error") if isinstance(msg.get("error"), dict) else {}
                     say(_failed(msg["id"], name, tool, str(err.get("message") or "ошибка инструмента"), repeats.failed(key)))
@@ -274,9 +277,52 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                     msg["result"]["tools"] = [t for t in tools if isinstance(t, dict) and
                                               R.tool_allowed(rules, name, str(t.get("name") or ""))]
             say(msg)
+        # the tool exited: the calls it was working on are answered now, not when Hermes' timeout runs out
+        orphans(proc)
 
-    reader = threading.Thread(target=upstream, daemon=True)
-    reader.start()
+    def orphans(proc) -> None:
+        """Answer the calls a dead process took and never answered."""
+        code = proc.wait()
+        if box["proc"] is None:
+            return
+        for msg_id, call in list(calls.items()):
+            if call[2] is proc and calls.pop(msg_id, None) is not None:
+                say(_failed(msg_id, name, call[0], f"инструмент {name} завершился во время вызова (код {code}); SYSAI "
+                                                   "перезапустил его — повторите вызов", repeats.failed(call[1])))
+
+    def spawn():
+        # not in the folder of the tool: a program working in a folder keeps Windows from renaming it
+        proc = subprocess.Popen(args, cwd=str(home), stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=env,
+                                creationflags=0x08000000 if paths.WINDOWS else 0)
+        box["proc"] = proc
+        box["reader"] = threading.Thread(target=upstream, args=(proc,), daemon=True)
+        box["reader"].start()
+        return proc
+
+    def send(proc, out) -> None:
+        proc.stdin.write(json.dumps(out, ensure_ascii=False).encode("utf-8") + b"\n")
+        proc.stdin.flush()
+
+    def restart() -> str:
+        """Start the tool again and replay the handshake; "" — it runs, otherwise why not."""
+        now = time.monotonic()
+        box["restarts"] = [t for t in box["restarts"] if now - t < RESTART_WINDOW]
+        if len(box["restarts"]) >= RESTARTS:
+            return (f"инструмент {name} падает снова и снова ({RESTARTS} перезапуска за {RESTART_WINDOW} с) — "
+                    "посмотрите его журнал или переустановите его в SYSAI_Hub")
+        box["restarts"].append(now)
+        orphans(box["proc"])
+        try:
+            proc = spawn()
+            if hello.get("initialize"):
+                send(proc, {**hello["initialize"], "id": f"{REINIT}{len(box['restarts'])}"})
+            if hello.get("initialized"):
+                send(proc, hello["initialized"])
+        except (OSError, ValueError) as exc:
+            return f"инструмент {name} не запускается: {exc}"
+        return ""
+
+    spawn()
     try:
         for line in stdin:
             if not line.strip():
@@ -290,6 +336,10 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                 if not isinstance(item, dict):
                     continue
                 method = item.get("method")
+                if method == "initialize" and "id" in item:
+                    hello["initialize"] = item
+                if method == "notifications/initialized":
+                    hello["initialized"] = item
                 if method == "tools/list" and "id" in item:
                     lists.add(item["id"])
                 if method == "tools/call":
@@ -304,30 +354,44 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                             refuse(item["id"], tool, targs, "доступ SYSAI: " + why)
                         continue
                     if "id" in item:
-                        calls[item["id"]] = (tool, _call_key(tool, targs))
+                        calls[item["id"]] = [tool, _call_key(tool, targs), None]
                 forward.append(item)
             if not forward:
                 continue
-            if proc.poll() is not None:
-                # the tool exited: a clear answer instead of silence, then close — Hermes marks it and the window restarts
+            out = forward if isinstance(msg, list) else forward[0]
+            why = ""
+            for attempt in range(2):
+                # the tool exited (a crash, an update of its folder): started again instead of leaving Hermes a dead
+                # server for the whole session — that was «the tool is available… and then it is not»
+                if box["proc"].poll() is not None:
+                    why = restart()
+                    if why:
+                        break
+                try:
+                    for item in forward:
+                        if item.get("id") in calls:
+                            calls[item["id"]][2] = box["proc"]
+                    send(box["proc"], out)
+                    why = ""
+                    break
+                except (BrokenPipeError, OSError):
+                    why = f"инструмент {name} закрыл соединение"
+                    try:
+                        box["proc"].wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        box["proc"].kill()
+            if why:
                 for item in forward:
                     if isinstance(item, dict) and "id" in item:
-                        calls.pop(item["id"], None)
-                        say(_error(item["id"], f"инструмент {name} завершился (код {proc.returncode}): перезапустите окно «Агент SYSAI»"))
-                break
-            try:
-                out = forward if isinstance(msg, list) else forward[0]
-                proc.stdin.write(json.dumps(out, ensure_ascii=False).encode("utf-8") + b"\n")
-                proc.stdin.flush()
-            except (BrokenPipeError, OSError):
-                for item in forward:
-                    if isinstance(item, dict) and "id" in item:
-                        calls.pop(item["id"], None)
-                        say(_error(item["id"], f"инструмент {name} недоступен (соединение закрыто): перезапустите окно «Агент SYSAI»"))
-                break
+                        call = calls.pop(item["id"], None)
+                        if call:
+                            say(_failed(item["id"], name, call[0], why, repeats.failed(call[1])))
+                        else:
+                            say(_error(item["id"], why))
     except (BrokenPipeError, OSError):
         pass
     finally:
+        proc = box["proc"]
         try:
             proc.stdin.close()
         except OSError:
@@ -336,5 +400,6 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
-        reader.join(timeout=5)
+        box["reader"].join(timeout=5)  # what the tool still says (or the calls it dropped) is answered before we go
+        box["proc"] = None
     return proc.returncode or 0

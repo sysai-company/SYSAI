@@ -104,11 +104,72 @@ def test_a_tool_that_exits_gets_a_clear_answer_not_silence(home, monkeypatch):
             yield (_rpc(5, "tools/call", {"name": "read_doc", "arguments": {}}) + "\n").encode("utf-8")
             time.sleep(0.5)
             yield (_rpc(6, "tools/call", {"name": "read_doc", "arguments": {}}) + "\n").encode("utf-8")
+            time.sleep(0.5)
     out = io.BytesIO()
     mcpwrap.serve("die-kit", home, stdin=SlowStdin(), stdout=out)
     answers = _answers(out)
-    assert 6 in answers and "error" in answers[6]
-    assert "перезапустите окно" in answers[6]["error"]["message"]
+    for i in (5, 6):                                                  # each call that the tool dropped is answered at once
+        assert "result" in answers[i] and "isError" not in answers[i]["result"]
+        assert "завершился во время вызова" in answers[i]["result"]["content"][0]["text"]
+
+
+def test_a_tool_that_crashed_is_started_again_with_the_handshake(home, monkeypatch, tmp_path):
+    """«The tool is available… and then it is not»: one crash of a tool must not cost the agent the server for the whole
+    session. The next call starts it again, replays initialize and gets a real answer."""
+    import time
+    flag = tmp_path / "crashed-once"
+    flaky = (
+        "import json, sys, os\n"
+        f"flag = {str(flag)!r}\n"
+        "seen = []\n"
+        "for line in sys.stdin:\n"
+        "    msg = json.loads(line)\n"
+        "    seen.append(msg.get('method'))\n"
+        "    if msg.get('method') == 'tools/call' and not os.path.exists(flag):\n"
+        "        open(flag, 'w').close(); sys.exit(1)\n"
+        "    if 'id' not in msg:\n"
+        "        continue\n"
+        "    out = {'content': [{'type': 'text', 'text': ','.join(m or '' for m in seen)}]}\n"
+        "    sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': msg['id'], 'result': out}) + '\\n')\n"
+        "    sys.stdout.flush()\n"
+    )
+    _startable(home, monkeypatch, "flaky-kit", [sys.executable, "-c", flaky])
+    monkeypatch.setattr(mcpwrap.Guard, "check_call", lambda self, tool, args: "")
+
+    class SlowStdin:
+        def __iter__(self):
+            yield (_rpc(1, "initialize", {"protocolVersion": "2024-11-05"}) + "\n").encode("utf-8")
+            yield (json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n").encode("utf-8")
+            yield (_rpc(2, "tools/call", {"name": "read_doc", "arguments": {}}) + "\n").encode("utf-8")
+            time.sleep(0.5)
+            yield (_rpc(3, "tools/call", {"name": "read_doc", "arguments": {}}) + "\n").encode("utf-8")
+            time.sleep(0.5)
+    out = io.BytesIO()
+    mcpwrap.serve("flaky-kit", home, stdin=SlowStdin(), stdout=out)
+    answers = _answers(out)
+    assert "завершился во время вызова" in answers[2]["result"]["content"][0]["text"]
+    # the new process saw the replayed handshake first, then the call itself; the replay's own answer is not forwarded
+    assert answers[3]["result"]["content"][0]["text"] == "initialize,notifications/initialized,tools/call"
+    assert set(answers) == {1, 2, 3}
+
+
+def test_a_tool_that_keeps_crashing_is_not_restarted_forever(home, monkeypatch):
+    import time
+    die = "import sys\nsys.stdin.readline()\n"
+    _startable(home, monkeypatch, "die-kit", [sys.executable, "-c", die])
+    monkeypatch.setattr(mcpwrap.Guard, "check_call", lambda self, tool, args: "")
+    monkeypatch.setattr(mcpwrap, "RESTARTS", 1)
+
+    class SlowStdin:
+        def __iter__(self):
+            for i in (1, 2, 3):
+                yield (_rpc(i, "tools/call", {"name": "read_doc", "arguments": {"n": i}}) + "\n").encode("utf-8")
+                time.sleep(0.4)
+    out = io.BytesIO()
+    mcpwrap.serve("die-kit", home, stdin=SlowStdin(), stdout=out)
+    answers = _answers(out)
+    assert set(answers) == {1, 2, 3}                                  # nobody is left waiting
+    assert "падает снова и снова" in answers[3]["result"]["content"][0]["text"]
 
 
 def test_a_signed_doc_without_rules_is_not_trusted_and_does_not_crash(home, monkeypatch):
