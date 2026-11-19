@@ -84,6 +84,32 @@ SECRETS = [
 _DANGER = [(re.compile(p, re.I), what) for p, what in DANGER]
 _SECRETS = [(re.compile(p), what) for p, what in SECRETS]
 URL_RE = re.compile(r"\bhttps?://([A-Za-z0-9.-]+)")
+# An XML namespace is an identifier, not an address: `http://schemas.flexem.com/fs/model/1` is never fetched, so
+# it is not an external address and must not be reported as one. These are the registries whose URIs are names —
+# the list is explicit so that a real host is never silenced by accident.
+NAMESPACE_PREFIXES = (
+    "http://www.w3.org/", "https://www.w3.org/",
+    "http://schemas.openxmlformats.org/", "https://schemas.openxmlformats.org/",
+    "http://schemas.microsoft.com/", "https://schemas.microsoft.com/",
+    "http://purl.org/", "https://purl.org/",
+    "http://www.plcopen.org/", "https://www.plcopen.org/",
+    "http://www.3s-software.com/", "https://www.3s-software.com/",
+    "http://schemas.flexem.com/", "https://schemas.flexem.com/",
+    "http://www.flexem.com/", "https://www.flexem.com/",
+)
+NAMESPACE_RE = re.compile(r"""xmlns(:[A-Za-z0-9_.-]+)?\s*=\s*["']https?://[^"']*["']""", re.I)
+
+
+def _without_namespaces(line: str) -> str:
+    """The line with XML namespace identifiers taken out: what is left is what could really be fetched."""
+    for prefix in NAMESPACE_PREFIXES:
+        while prefix in line:
+            at = line.index(prefix)
+            end = at
+            while end < len(line) and line[end] not in "\"' }>),;":
+                end += 1
+            line = line[:at] + line[end:]
+    return NAMESPACE_RE.sub("", line)
 
 
 class HubError(Exception):
@@ -417,7 +443,7 @@ def check(files: dict) -> tuple[dict, dict]:
             for pattern, secret in _SECRETS:
                 if pattern.search(line):
                     errors.append({"path": path, "line": number, "what": f"секрет в {'навыке' if doc == SKILL_DOC else 'инструменте'}: " + secret})
-            for host in URL_RE.findall(line):
+            for host in URL_RE.findall(_without_namespaces(line)):
                 if not _host_ok(host, hosts):
                     item = {"path": path, "line": number, "what": f"внешний адрес {host}"}
                     # in a skill every script line counts; in a tool's code — the lines that really go to the network

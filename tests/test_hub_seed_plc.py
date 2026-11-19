@@ -25,7 +25,8 @@ import plcstage  # noqa: E402
 TOOLS = ["plc_info", "plc_pous", "plc_pou", "plc_variables", "plc_addresses", "plc_hmi_tags", "plc_tag_check", "plc_check", "plc_style",
          "plc_style_save", "plc_style_list", "plc_style_show",
          "plc_link", "plc_stage_update", "plc_spec_new", "plc_spec_check", "plc_generate", "plc_export_st", "plc_build",
-         "plc_formats", "plc_export", "plc_project_build", "plc_project_template", "plc_io", "plc_io_map"]
+         "plc_formats", "oni_windows", "oni_objects", "oni_addresses", "oni_check", "oni_panel",
+         "plc_export", "plc_project_build", "plc_project_template", "plc_io", "plc_io_map"]
 
 GVL = """VAR_GLOBAL
 	PUSK AT %MX0.0:BOOL; //ПУСК
@@ -147,9 +148,8 @@ def _server(calls):
 def test_the_tool_and_the_skill_pass_the_hub_check():
     meta, report = hub.check(_files())
     assert report["errors"] == [] and meta["name"] == "plc-kit" and meta["kind"] == "mcp"
-    # the only remarks: the XML namespace names in the code look like addresses (the tool opens no connection)
-    assert sorted(w["what"] for w in report["warnings"]) == ["внешний адрес www.3s-software.com", "внешний адрес www.plcopen.org",
-                                                             "внешний адрес www.w3.org"]
+    # XML namespace names are identifiers, not addresses: the check must not report them (the tool opens no connection)
+    assert report["warnings"] == []
     assert [t.strip() for t in meta["tools"].split(",")] == TOOLS
     assert not any(w in src for src in (f.read_text(encoding="utf-8") for f in SEED.glob("*.py"))
                    for w in ("import socket", "urllib", "http.client", "requests", "subprocess"))
@@ -353,7 +353,7 @@ def test_server_reads_checks_and_builds(tmp_path):
         ("plc_build", {"src_dir": str(out / "st"), "out_file": str(out / "plc.xml")}), ("plc_info", {"path": str(out / "st")}),
         ("plc_info", {"path": str(tmp_path / "x.project")}), ("plc_pou", {"path": exp, "name": "Nope"}),
     ])
-    assert replies[0]["result"]["serverInfo"] == {"name": "plc-kit", "title": "ПЛК: Machine Expert, ST", "version": "1.8.0"}
+    assert replies[0]["result"]["serverInfo"] == {"name": "plc-kit", "title": "ПЛК: Machine Expert, ST", "version": "1.9.0"}
     assert [t["name"] for t in replies[1]["result"]["tools"]] == TOOLS
     r = [x["result"] for x in replies[2:]]
     assert json.loads(r[0]["content"][0]["text"])["pous"] == 3

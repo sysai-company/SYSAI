@@ -1,11 +1,11 @@
 ---
 name: plc-kit
 kind: mcp
-description: Читает, проверяет и собирает программу ПЛК Schneider Machine Expert / CODESYS на языке ST без Machine Expert — в том числе сам файл .project (читает любой и пишет настоящий из папки ST и шаблона), программы, блоки, переменные, адреса Modbus, каналы ввода-вывода, теги для панели (Modbus и OPC UA), стиль проекта, PLCopen XML; решает связь панели и контроллера по моделям из ТЗ и ведёт этапы проекта «под ключ».
-version: 1.8.0
+description: Читает, проверяет и собирает программу ПЛК Schneider Machine Expert / CODESYS на языке ST без Machine Expert — в том числе сам файл .project (читает любой и пишет настоящий из папки ST и шаблона), программы, блоки, переменные, адреса Modbus, каналы ввода-вывода, теги для панели (Modbus и OPC UA), стиль проекта, PLCopen XML; читает экраны панели ONI Visual Studio (Flexem Studio) — окна, объекты, адреса ПЛК, разрешение панели; решает связь панели и контроллера по моделям из ТЗ и ведёт этапы проекта «под ключ».
+version: 1.9.0
 run: python server.py
 platform: any
-tools: plc_info, plc_pous, plc_pou, plc_variables, plc_addresses, plc_hmi_tags, plc_tag_check, plc_check, plc_style, plc_style_save, plc_style_list, plc_style_show, plc_link, plc_stage_update, plc_spec_new, plc_spec_check, plc_generate, plc_export_st, plc_build, plc_formats, plc_export, plc_project_build, plc_project_template, plc_io, plc_io_map
+tools: plc_info, plc_pous, plc_pou, plc_variables, plc_addresses, plc_hmi_tags, plc_tag_check, plc_check, plc_style, plc_style_save, plc_style_list, plc_style_show, plc_link, plc_stage_update, plc_spec_new, plc_spec_check, plc_generate, plc_export_st, plc_build, plc_formats, oni_windows, oni_objects, oni_addresses, oni_check, oni_panel, plc_export, plc_project_build, plc_project_template, plc_io, plc_io_map
 requires: python>=3.11
 ---
 # ПЛК: Machine Expert / CODESYS, язык ST
@@ -229,21 +229,77 @@ XML в Machine Expert тоже не проверен.
 папке проекта (`plc_export_st` из образца). Стиль не гарантирует, что вендор написал бы именно так — он
 воспроизводит то, что видно в профиле.
 
-## Формат файла: Machine Expert, ONI, Haiwell Happy
+## Формат файла: программа ПЛК и экраны панели
 
-`plc_formats` — что готово, а что нет. `plc_export {format}` пишет программу в выбранном формате.
+Это **два разных вида**, и путать их нельзя:
 
-| Формат | Готов | Что это |
-|---|---|---|
-| `me` | да | настоящий `.project` Machine Expert — тот же сборщик, что `plc_project_build` |
-| `oni` | нет | формат ONI ещё не разобран: нужен проект ONI с диска (T20) |
-| `hawell` | нет | формат Haiwell Happy ещё не разобран: нужен проект с диска (T19) |
+| Вид | Формат | Что это | Языки |
+|---|---|---|---|
+| ПЛК | `me` | Machine Expert / CODESYS, `.project` | LD и ST |
+| ПЛК | `hawell` | Haiwell Happy, `.gpc` | только LD |
+| Панель | `oni` | ONI Visual Studio (русская сборка Flexem Studio), `.fsprj` | — |
+| Панель | `easybuilder` | EasyBuilder (Weintek), `.cmtp` | — |
+
+`plc_formats` — что умеем: `read` и `write` это разные вещи. `plc_export {format}` пишет программу в выбранном
+формате.
+
+| Формат | Читаем | Пишем | Чем не готов |
+|---|---|---|---|
+| `me` | да | да | — |
+| `hawell` | нет | нет | `.gpc` сжат своим способом: zlib-потоков нет, энтропия 7,06 бит/байт |
+| `oni` | да | нет | экраны читаются, запись `.wcfg` ещё не сделана |
+| `easybuilder` | да | да | — |
 
 У каждого формата есть `icon` — маленькое лого. По этому списку агент спрашивает «в каком формате сохранить»,
 показывая лого рядом с вариантом (окно агента рисует их карточками, `x-icons` в вопросе).
 
 **«Готов» значит «проверено на настоящем файле».** Формат, который ещё не разобран, честно отвечает, чего не
 хватает, и файла не пишет — вместо того чтобы записать что-то похожее.
+
+## Экраны ONI: окна, объекты, адреса, разрешение
+
+ONI Visual Studio — это **панель оператора**, а не ПЛК. Проект — не один файл, а папка:
+
+```
+Line.fsprj                  сам проект: версия, язык (XML, пара сотен байт)
+HMI/Frame/**/*.wcfg         окна: одно окно — один файл, открытый XML
+HMI/System/ConnectInfo.cfg  ПЛК и протокол (Modbus TCP и другие)
+HMI/System/GlobalConfigInfo.cfg  стартовое окно
+```
+
+Окно — `<HMIWindowInfo>` с `Width`/`Height` и объектами `<GraphicsBase i:type="…">`. Тип объекта лежит в
+`xsi:type` (`SwitchInfo`, `NumericCharInfo`, `StaticTextInfo`, `StaticPictureInfo`, `LineInfo`…), геометрия — в
+`NormalInfo/Position`, привязка к ПЛК — в `DynamicGraphInfo/ControlAddress` (у клавиши их четыре:
+до/после × бит/слово), текст — в `NormalInfo/StaticTextContentInfos`, картинка — base64 PNG в `ImageData`.
+
+**Адрес** бывает двух видов, и второй легко пропустить:
+
+- `Abbreviation` — адрес как его видит инженер: `4X_bit3.13`, `0X3079`;
+- `Raw/MainAddress` + `Raw/RegisterId` — число и регистр, `Abbreviation` при этом пустая. Регистры:
+  `257` → `SRB` (системный бит), `65791` → `LW` (локальное слово), `65792` → `SRW` (системное слово),
+  `65788` → `SRWR`, `6` → `4X_bit` (бит Modbus). Так `MainAddress 13` при `RegisterId 257` — это `SRB13`.
+
+Инструменты:
+
+| Инструмент | Что даёт |
+|---|---|
+| `oni_windows` | окна проекта: id, имя, папка, число объектов, размер; ПЛК и стартовое окно |
+| `oni_objects` | что нарисовано на окне: тип словами, подпись, координаты, привязка, есть ли картинка |
+| `oni_addresses` | какие адреса читают экраны, сколько объектов и на каких окнах |
+| `oni_check` | что не так, по строке на окно |
+| `oni_panel` | под какое разрешение нарисованы экраны и из чего выбирать |
+
+**У окон нет своих имён** (`GraphicsName` пустая): программа ссылается на них по GUID. Имя окна здесь — первый
+текст на нём, личность — GUID. Поэтому в `oni_objects` можно передать GUID, имя файла или это имя.
+
+**Разрешение панели** — самое большое окно проекта (всплывающие меньше и экран не задают). Панели разные, и
+экран под 1024×768 на 800×480 не влезает, поэтому разрешение — **выбор инженера** при создании проекта, а не
+константа: `oni_panel` отдаёт список (800×480, 1024×600, 1024×768, 1280×800, 1366×768, 1920×1080, 640×480,
+480×272). Так нарисовано Достоево — 1024×768.
+
+`oni_check` сообщает по строке на окно, а не на объект: объект целиком за окном (ошибка), объект выходит за
+край больше чем на 20 точек, клавиша или число ни к чему не привязаны, в проекте не описан ПЛК. Объект,
+свисающий за край на пару точек, — норма для рисунка и не сообщается.
 
 ## Папка ST — как пишут проект с нуля
 

@@ -205,9 +205,8 @@ def _server(calls):
 def test_the_tool_passes_the_hub_check():
     meta, report = hub.check(_files())
     assert report["errors"] == [] and meta["name"] == "doc-kit" and meta["kind"] == "mcp" and meta["version"] == "1.1.2"
-    # the only remarks: the XML namespace names in the code look like addresses (the tool opens no connection)
-    assert {w["what"] for w in report["warnings"]} == {"внешний адрес schemas.openxmlformats.org", "внешний адрес schemas.microsoft.com",
-                                                       "внешний адрес purl.org", "внешний адрес www.w3.org"}
+    # XML namespace names are identifiers, not addresses: the check must not report them (the tool opens no connection)
+    assert report["warnings"] == []
     assert [t.strip() for t in meta["tools"].split(",")] == TOOLS
     assert not any(w in src for src in (f.read_text(encoding="utf-8") for f in SEED.glob("*.py"))
                    for w in ("import socket", "urllib", "http.client", "requests", "subprocess", "import docx\n", "from docx "))

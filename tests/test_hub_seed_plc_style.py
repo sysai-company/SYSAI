@@ -134,17 +134,32 @@ def test_the_server_generates_in_the_saved_style(tmp_path):
     assert "noria1" in mechs and "Noria1" not in mechs      # имена в манере стиля
 
 
-def test_the_formats_say_what_is_ready_and_what_is_not():
+def test_the_formats_separate_the_plc_from_the_panel():
+    """ПЛК и панель — разные вещи: Machine Expert и Haiwell это программа, ONI и EasyBuilder это экраны."""
     got = _server([("plc_formats", {})])[0]
     fmts = {f["id"]: f for f in got["structuredContent"]["formats"]}
-    assert fmts["me"]["ready"] is True and fmts["me"]["icon"].endswith("format-me.svg")
-    assert fmts["oni"]["ready"] is False and fmts["hawell"]["ready"] is False
-    assert "не разобран" in fmts["oni"]["note"]
+    assert {k for k, f in fmts.items() if f["kind"] == "plc"} == {"me", "hawell"}
+    assert {k for k, f in fmts.items() if f["kind"] == "hmi"} == {"oni", "easybuilder"}
+    assert fmts["me"]["read"] and fmts["me"]["write"] and fmts["me"]["icon"].endswith("format-me.svg")
+    assert fmts["oni"]["read"] is True and fmts["oni"]["write"] is False   # экраны читаем, писать ещё нет
+    assert fmts["hawell"]["read"] is False and fmts["hawell"]["write"] is False
+    assert "LD и ST" in fmts["me"]["note"] and "только LD" in fmts["hawell"]["note"]
 
 
-def test_an_unready_format_writes_nothing_and_says_why(tmp_path):
+def test_a_panel_format_offers_the_screen_resolutions():
+    """Панели разные: разрешение — выбор инженера, а не константа в коде."""
+    got = _server([("plc_formats", {"kind": "hmi"})])[0]
+    fmts = got["structuredContent"]["formats"]
+    assert [f["id"] for f in fmts] == ["oni", "easybuilder"]
+    ids = [r["id"] for r in fmts[0]["resolutions"]]
+    assert ids[:3] == ["800x480", "1024x600", "1024x768"] and "1920x1080" in ids
+    assert all({"id", "w", "h", "title"} <= set(r) for r in fmts[0]["resolutions"])
+    assert "resolutions" not in _server([("plc_formats", {"kind": "plc"})])[0]["structuredContent"]["formats"][0]
+
+
+def test_a_format_we_cannot_write_writes_nothing_and_says_why(tmp_path):
     out = tmp_path / "x.oni"
     got = _server([("plc_export", {"format": "oni", "src_dir": str(tmp_path), "out_file": str(out)})])[0]
     assert got.get("isError") is True
-    assert "не разобран" in got["content"][0]["text"]
+    assert "ещё не разобран" in got["content"][0]["text"] or "не разобран" in got["content"][0]["text"]
     assert not out.exists()
