@@ -2,10 +2,10 @@
 name: ebpro-cmtp
 kind: mcp
 description: Читает, рисует и собирает проекты Weintek EasyBuilder Pro (.cmtp/.emtp) без EasyBuilder — окна, объекты, теги OPC UA, меню (какая кнопка какое окно открывает), картинки; PNG окна как на панели; проверка (за краем, не влезает текст, кнопка в никуда, тега нет); правки в новый файл — тексты, сдвиг, размер, теги, копии и удаление окон и объектов, кнопки на окна, новые теги, окна и объекты из проекта-донора. Индекс экранов — каталог всего проекта сразу (окна, объекты с подписями и тегами, картинки с sha256) для поиска по всем экранам разом. Основа навыков ebpro-project, ebpro-donor, ebpro-team и холста окна «Агент SYSAI».
-version: 1.10.0
+version: 1.11.0
 run: python server.py
 platform: any
-tools: cmtp_info, cmtp_new, cmtp_labels, cmtp_extract_images, cmtp_unpack, cmtp_pack, cmtp_relabel, cmtp_windows, cmtp_objects, cmtp_index, cmtp_tags, cmtp_scene, cmtp_links, cmtp_check, cmtp_render, cmtp_edit
+tools: cmtp_info, cmtp_new, cmtp_labels, cmtp_extract_images, cmtp_unpack, cmtp_pack, cmtp_relabel, cmtp_windows, cmtp_objects, cmtp_index, cmtp_tags, cmtp_devices, cmtp_scene, cmtp_links, cmtp_check, cmtp_render, cmtp_edit
 requires: python>=3.11
 ---
 # EasyBuilder Pro: проекты .cmtp / .emtp
@@ -91,6 +91,29 @@ requires: python>=3.11
 - `sha256` объекта — хеш его записи: одинаковый у того же объекта в двух версиях проекта, значит объект не менялся.
   Так сравнивают «что поменялось между версиями», не читая окна целиком.
 - `sha256` картинки — хеш её байтов; `used_in` — где она стоит.
+
+## Устройство OPC UA в шаблоне без OPC UA (cmtp_devices)
+
+Шаблон EasyBuilder (`project/template_<разрешение>.cmtp`) приходит без устройства OPC UA: объекты в нём ни к чему
+не привязаны, и на панели они ничего не прочитают. `cmtp_devices` показывает, к чему привязаны объекты сейчас:
+
+```json
+{"devices": [{"name": "OPC UA Client", "objects": 412, "windows": [10, 11, 12], "tags": ["GVL.A"], "tags_count": 588}],
+ "opcua": true, "count": 1}
+```
+
+`opcua: false` — устройства OPC UA нет. Два пути:
+
+1. **Взять из донора** (без EasyBuilder): `cmtp_edit import_window` с `devices={"OPC UA Client": "OPC UA Client"}` —
+   имена устройств донора и проекта совпадают, объекты переносятся вместе с привязкой. Если в проекте устройства
+   нет вовсе, `import_window` скажет об этом в `notes` («device … is not used in the project»): тогда устройство
+   создают один раз в EasyBuilder.
+2. **Создать в EasyBuilder** (единственный шаг, который пока требует окна программы): Сеть → OPC UA Client →
+   адрес ПЛК (`opc.tcp://<IP>:4840`), политика безопасности и учётная запись. Дальше `cmtp_devices` подтвердит
+   `opcua: true`, а `cmtp_check` перестанет предупреждать `device_opcua`.
+
+`cmtp_check` даёт `device_opcua`, когда в таблице есть теги OPC UA, а ни один объект не привязан к устройству OPC UA:
+теги есть, а читать их нечем.
 
 ## Объекты окна (cmtp_objects)
 

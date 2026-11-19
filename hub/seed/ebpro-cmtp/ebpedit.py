@@ -1014,6 +1014,10 @@ def check(p: Project, window=None) -> list:
                 g = bytes(pay[slot:slot + 16])
                 if g in known and g not in groups:
                     add('error', w, o['index'], 'picture_missing', 'a file of its picture is not in the library')
+    devs = {d['name'] for d in devices(p)['devices']}
+    if tags and not any('opc' in d.lower() for d in devs):
+        add('warning', None, None, 'device_opcua', 'в таблице есть теги OPC UA, но ни один объект не привязан к '
+            'устройству OPC UA — проверьте устройство в EasyBuilder (Сеть → OPC UA Client)')
     return out
 
 
@@ -1065,3 +1069,27 @@ def index_project(p: Project, query: str = "", kind: str = "", window=None, limi
     if offset + len(page) < total:
         out['next_offset'] = offset + len(page)
     return out
+
+
+# -- devices -----------------------------------------------------------------------------------------------------------
+def devices(p: Project) -> dict:
+    """Which devices the objects of the project are wired to: [{name, objects, windows, tags, tags_count}].
+
+    EasyBuilder keeps the device list in the settings after the windows; this reads what the objects reference, so the
+    agent sees at once whether a template is wired to an OPC UA device or still to an old one, and which device a
+    window from a donor must be mapped to (import_window, devices={donor: project})."""
+    out = {}
+    for w in p.windows():
+        for o in w['objects']:
+            names = {dev for _, _, dev in o.get('_dev') or () if dev}
+            tags = {opc_tag_name(t) for _, _, t in o.get('_addr') or () if opc_tag_name(t)}
+            for name in names:
+                d = out.setdefault(name, {'name': name, 'objects': 0, 'windows': set(), 'tags': set()})
+                d['objects'] += 1
+                d['windows'].add(w['number'])
+                d['tags'] |= tags
+    rows = [{'name': d['name'], 'objects': d['objects'], 'windows': sorted(d['windows']),
+             'tags': sorted(d['tags'])[:20], 'tags_count': len(d['tags'])}
+            for d in sorted(out.values(), key=lambda x: (-x['objects'], x['name']))]
+    return {'devices': rows, 'opcua': any('opc' in r['name'].lower() for r in rows),
+            'count': len(rows)}

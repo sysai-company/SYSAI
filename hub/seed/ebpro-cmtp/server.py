@@ -173,6 +173,17 @@ TOOLS = [
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
+        "name": "cmtp_devices",
+        "title": "Устройства проекта",
+        "description": "К каким устройствам привязаны объекты проекта: имя устройства, сколько объектов и окон на нём, "
+                       "какие теги OPC UA через него идут. Нужно, чтобы понять, есть ли в шаблоне устройство OPC UA "
+                       "Client: если opcua=false, объекты не прочитают ПЛК, и устройство добавляют в EasyBuilder "
+                       "(Сеть → OPC UA Client) или берут окно из донора с devices={донор: проект}.",
+        "inputSchema": {"type": "object", "properties": {"path": PATH},
+                        "required": ["path"], "additionalProperties": False},
+        "annotations": {"readOnlyHint": True, "openWorldHint": False},
+    },
+    {
         "name": "cmtp_scene",
         "title": "Как выглядит окно",
         "description": "Окно так, как его покажет панель: размер и цвет фона; у каждого объекта по порядку рисования — "
@@ -508,6 +519,13 @@ def _call(name, args):
             if r.get("next_offset"):
                 head += f"; показаны объекты {int(args.get('offset') or 0)}–{r['next_offset']} (next_offset)"
             return dict(_text(head), structuredContent=r)
+        if name == "cmtp_devices":
+            p = _load(args["path"])
+            r = ebpedit.devices(p)
+            head = (f"Устройств {r['count']}" + ("" if r["count"] else " (ни одного: объекты ни к чему не привязаны)"))
+            if r["count"]:
+                head += "; OPC UA " + ("есть" if r["opcua"] else "нет — объекты не прочитают ПЛК")
+            return dict(_text(head), structuredContent=r)
         if name == "cmtp_objects":
             p = _load(args["path"])
             w = p.window(args["window"])
@@ -809,7 +827,7 @@ def _handle(msg):
         if method == "initialize":
             _out({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": str(params.get("protocolVersion") or PROTOCOL),
                   "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.10.0"},
+                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.11.0"},
                   "instructions": INSTRUCTIONS}})
         elif method == "ping":
             _out({"jsonrpc": "2.0", "id": mid, "result": {}})

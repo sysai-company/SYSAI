@@ -20,8 +20,8 @@ sys.path.insert(0, str(SEED))
 import ebpcmtp  # noqa: E402
 
 TOOLS = ["cmtp_info", "cmtp_new", "cmtp_labels", "cmtp_extract_images", "cmtp_unpack", "cmtp_pack", "cmtp_relabel",
-         "cmtp_windows", "cmtp_objects", "cmtp_index", "cmtp_tags", "cmtp_scene", "cmtp_links", "cmtp_check",
-         "cmtp_render", "cmtp_edit"]
+         "cmtp_windows", "cmtp_objects", "cmtp_index", "cmtp_tags", "cmtp_devices", "cmtp_scene", "cmtp_links",
+         "cmtp_check", "cmtp_render", "cmtp_edit"]
 
 
 def _png(rgba=(255, 0, 0, 255)) -> bytes:
@@ -515,7 +515,7 @@ def test_mcp_server_over_stdio(tmp_path):
 
     try:
         assert rpc(1, "initialize", {"protocolVersion": "2025-06-18"})["result"]["serverInfo"] == {
-            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.10.0"}
+            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.11.0"}
         assert [t["name"] for t in rpc(2, "tools/list")["result"]["tools"]] == TOOLS
         err, text = call(3, "cmtp_info", path=str(src))
         info = json.loads(text)
@@ -837,6 +837,20 @@ def test_the_index_tool_answers_with_a_catalogue(tmp_path):
     assert not res.get("isError")
     assert res["structuredContent"]["counts"]["windows"] == 3
     assert res["structuredContent"]["objects"]
+
+
+def test_devices_show_what_the_objects_are_wired_to(monkeypatch):
+    """T6: шаблон без OPC UA виден сразу — к чему привязаны объекты и есть ли среди устройств OPC UA."""
+    p = _menu_project()
+    r = ebpedit.devices(p)
+    assert r["count"] == 2 and r["opcua"] is True
+    assert [d["name"] for d in r["devices"]] == ["Local HMI", "OPC UA Client"]
+    assert r["devices"][0]["objects"] == 11 and r["devices"][0]["windows"] == [0, 1, 2]
+    assert r["devices"][1]["tags"] == ["GVL.A"]
+    assert "device_opcua" not in {c["code"] for c in ebpedit.check(p)}
+    # шаблон без устройства OPC UA: теги есть, читать их нечем — check предупреждает
+    monkeypatch.setattr(ebpedit, "devices", lambda _p: {"devices": [{"name": "Local HMI"}], "opcua": False, "count": 1})
+    assert "device_opcua" in {c["code"] for c in ebpedit.check(p)}
 
 
 def test_settings_reference_shadow_and_coinciding_data_do_not_block_an_edit():
