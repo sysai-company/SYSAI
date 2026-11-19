@@ -671,12 +671,25 @@ class MEProject:
     # ---- the program as a whole -----------------------------------------------------------------------------
     PROGRAM_KINDS = ('pou', 'method', 'action', 'property', 'accessor', 'gvl', 'persistent', 'type', 'interface', 'folder')
 
-    def strip_program(self):
+    def strip_program(self, keep=()):
         """Take the program out: programs, blocks, functions, lists, types and their folders. Devices, libraries,
-        the task configuration and the settings stay — what is left is a template. -> names removed."""
+        the task configuration and the settings stay — what is left is a template. `keep` — names of POUs that stay
+        with what is inside them (drawn blocks the new program uses but cannot carry as text). -> names removed."""
+        keep = {str(k).lower() for k in keep or ()}
+        held = set()
+        for n in self.nodes.values():
+            if n.kind == 'pou' and n.name.lower() in keep:
+                held.add(n.guid)
+                held.update(c.guid for c in self.descendants(n))
+                f = self.folder_of(n)          # the folders it is shown in stay too (a folder is a view)
+                while f is not None and f.guid not in held:
+                    held.add(f.guid)
+                    f = self.folder_of(f)
         gone = []
         for n in list(self.nodes.values()):
-            if n.guid in self.nodes and n.kind in self.PROGRAM_KINDS:
+            if n.guid in self.nodes and n.kind in self.PROGRAM_KINDS and n.guid not in held:
+                if n.kind == 'folder' and any(c.guid in held for c in self.descendants(n)):
+                    continue
                 gone += self.remove(n)
         for n in self.nodes.values():
             if n.kind == 'task':
@@ -711,8 +724,9 @@ class MEProject:
         was a template or a donor); otherwise objects are matched by name: found ones get the new text, new ones
         are added, the rest stay. -> {'created', 'updated', 'removed', 'kept', 'skipped', 'warnings', 'tasks'}."""
         rep = {'created': [], 'updated': [], 'removed': [], 'kept': [], 'skipped': [], 'warnings': [], 'tasks': []}
+        drawn = [x['name'] for x in source.pous if x.get('language', 'st') != 'st']
         if clean:
-            rep['removed'] = self.strip_program()
+            rep['removed'] = self.strip_program(keep=drawn)
         home = self.home()
         where = home.guid if home is not None else NULL
         by_name = {n.name.lower(): n for n in self.nodes.values()
@@ -753,7 +767,15 @@ class MEProject:
         order = {'function': 0, 'function_block': 1, 'program': 2}
         for x in sorted(source.pous, key=lambda x: order.get(x.get('kind'), 3)):
             if x.get('language', 'st') != 'st':
-                rep['skipped'].append(x['name'])
+                # a drawn block keeps its picture from the project / template; text cannot replace it
+                if any(n.kind == 'pou' and n.name.lower() == x['name'].lower() for n in self.nodes.values()):
+                    rep['kept'].append(x['name'])
+                else:
+                    rep['skipped'].append(x['name'])
+                    rep['warnings'].append(f"{x['name']}: графический блок (LD / FBD / CFC), в шаблоне его нет — "
+                                           "его схему текстом не перенести: нарисуйте в Machine Expert или "
+                                           "перепишите на ST")
+                wanted.add(x['name'].lower())
                 continue
             n = put('pou', x, x.get('body') or '')
             have = {c.name.lower(): c for c in self.children(n)}

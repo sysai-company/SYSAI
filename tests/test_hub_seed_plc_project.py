@@ -395,3 +395,28 @@ def test_what_the_customer_projects_showed_the_check_is_not_an_error(tmp_path):
     assert any("Нет_такого" in i["text"] and i["level"] == "error" for i in plcbuild.load_dir(str(src)).check())
     # and a real slip is still seen
     assert any("вместо «:=»" in i["text"] for i in plcbuild.load_dir(str(_src(tmp_path, main=MAIN + "\nstep = 5;"))).check())
+
+
+def test_a_drawn_block_of_the_template_is_kept_not_replaced_by_an_empty_one(tmp_path):
+    """plc_export_st writes a drawn POU (LD / FBD / CFC) as its declaration and a note. Read back it was an ST block
+    with no code: plc_project_build took the template's drawing out and wrote an empty block — the program compiled
+    and the logic of conveyors and norias was gone (a real customer project: 15 drawn blocks). Now it stays."""
+    t = P.MEProject.open(str(FIXTURE))
+    fb = next(n for n in t.objects() if n.kind == "pou" and n.name == "FB_Motor")
+    decl, body, _ = t.text(fb)
+    assert body.strip()
+    src = _src(tmp_path)
+    (src / "FB_Motor.st").write_text(decl.rstrip("\n") + "\n\n" + plcbuild.DRAWN_NOTE + "\n//   Speed\n", encoding="utf-8")
+    model = plcbuild.load_dir(str(src))
+    assert next(x for x in model.pous if x["name"] == "FB_Motor")["language"] == "graphic"
+    out = tmp_path / "out.project"
+    rep = plcproj.create(model, str(FIXTURE), str(out))
+    assert "FB_Motor" in rep["kept"] and "FB_Motor" not in rep["removed"]
+    q = P.MEProject.open(str(out))
+    kept = next(n for n in q.objects() if n.kind == "pou" and n.name == "FB_Motor")
+    assert q.text(kept)[1] == body                                          # the template's own code, not empty
+    assert not any(n.name == "F_Add" for n in q.objects())                   # the rest of the template program is out
+    (src / "Gone.st").write_text("FUNCTION_BLOCK Gone\nVAR_INPUT\n\tx: BOOL;\nEND_VAR\n\n" + plcbuild.DRAWN_NOTE + "\n",
+                                 encoding="utf-8")
+    rep = plcproj.create(plcbuild.load_dir(str(src)), str(FIXTURE), str(tmp_path / "out2.project"))
+    assert "Gone" in rep["skipped"] and any("Gone: графический блок" in w for w in rep["warnings"])

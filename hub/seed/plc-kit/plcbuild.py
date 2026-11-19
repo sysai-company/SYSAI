@@ -101,8 +101,11 @@ def load_dir(src_dir: str) -> plcme.Project:
         seen[name.lower()] = fn
         if part['what'] == 'pou':
             d = plcst.parse_declaration(part['declaration'])
-            p.pous.append({'name': name, 'kind': part['kind'], 'declaration': part['declaration'], 'body': part['body'],
-                           'language': 'st', 'folder': '', 'children': [], 'returns': d['returns'], 'extends': d['extends']})
+            # a drawn POU written out by write_dir: its declaration and a note, no code — it is not an empty ST block
+            drawn = _DRAWN.match(part['body'] or '') is not None
+            p.pous.append({'name': name, 'kind': part['kind'], 'declaration': part['declaration'],
+                           'body': '' if drawn else part['body'], 'language': 'graphic' if drawn else 'st',
+                           'folder': '', 'children': [], 'returns': d['returns'], 'extends': d['extends']})
         elif part['what'] == 'gvl':
             p.gvls.append({'name': name, 'declaration': part['declaration'], 'folder': ''})
         else:
@@ -113,6 +116,10 @@ def load_dir(src_dir: str) -> plcme.Project:
         p.tasks.append({'name': str(t['name']), 'kind': 'Cyclic', 'priority': str(t.get('priority', '15')),
                         'interval': str(t.get('interval') or '20ms'), 'pous': [str(x) for x in t.get('pous') or []]})
     return p
+
+
+DRAWN_NOTE = '// Графический язык (LD / FBD / CFC): кода текстом нет.'
+_DRAWN = re.compile(r'\s*' + re.escape(DRAWN_NOTE) + r'(\s*//[^\n]*)*\s*$')
 
 
 def write_dir(p: plcme.Project, out_dir: str) -> list:
@@ -135,7 +142,7 @@ def write_dir(p: plcme.Project, out_dir: str) -> list:
             put(f"{x['name']}.st", x['declaration'].rstrip('\n') + '\n\n' + x['body'])
         else:
             uses = '\n'.join(f'//   {u}' for u in x.get('uses', [])[:400])
-            put(f"{x['name']}.st", x['declaration'].rstrip('\n') + '\n\n// Графический язык (LD / FBD / CFC): кода текстом нет.\n'
+            put(f"{x['name']}.st", x['declaration'].rstrip('\n') + '\n\n' + DRAWN_NOTE + '\n'
                 '// Имена, которые встречаются в схеме:\n' + uses)
     meta = {'name': p.name, 'controller': getattr(p, 'controller', ''), 'source': p.source,
             **({'panel': p.panel} if getattr(p, 'panel', '') else {}), **({'link': p.link} if p.link else {}),
