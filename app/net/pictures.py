@@ -108,6 +108,26 @@ def find(rights, query: str, state: str = "", limit: int = 10, folder: str = PAC
         raise PicturesError(str(exc)) from None
 
 
+def missing(rights, equipment: str, states: list, folder: str = PACK) -> dict:
+    """Чего в паке не хватает для механизма: каких состояний нет ни у одного набора.
+
+    По этому списку агент рисует недостающее (на прозрачном фоне) и кладёт в пак — второй раз не рисует.
+    """
+    pic = _picindex()
+    index = load(rights, folder)
+    want = [str(s).strip().lower() for s in (states or []) if str(s).strip()]
+    have = set()
+    sets = []
+    for one in pic.sets_of(index["pictures"]):
+        if one["equipment"] != equipment:
+            continue
+        sets.append({"base": one["base"], "states": sorted(one["states"])})
+        have |= set(one["states"])
+    return {"equipment": equipment, "folder": folder, "sets": sets,
+            "have": sorted(have), "missing": [s for s in want if s not in have],
+            "complete": bool(want) and all(s in have for s in want)}
+
+
 def overview(rights, equipment: str = "", folder: str = PACK) -> dict:
     """What the pack holds: kinds of equipment, how many sets and pictures, and the states each set has."""
     pic = _picindex()

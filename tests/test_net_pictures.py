@@ -92,3 +92,14 @@ def test_the_page_shows_the_pack_and_searches_by_meaning(client, net_on):
     r = client.post("/pictures/index", follow_redirects=False)
     said = unquote_plus(r.headers["location"])
     assert "msg=" in said and "наборов 2" in said
+
+
+def test_what_the_pack_lacks_is_named_so_the_agent_draws_only_that(client):
+    rights = files.for_person(BOSS)
+    _pack(rights)
+    got = pictures.missing(rights, "нория", ["off", "on", "alarm", "warning"])
+    assert got["have"] == ["alarm", "off", "on"]
+    assert got["missing"] == ["warning"] and got["complete"] is False
+    full = pictures.missing(rights, "нория", ["off", "on", "alarm"])
+    assert full["missing"] == [] and full["complete"] is True
+    assert pictures.missing(rights, "дробилка", ["on"])["missing"] == ["on"]
