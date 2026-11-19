@@ -984,6 +984,7 @@ def check(p: Project, window=None) -> list:
             add('info', w, None, 'unreachable', 'no function key leads here (fine for the start window, keypads, '
                 'windows opened from the PLC)')
         user = w['number'] >= SYSTEM_WINDOWS
+        beyond = 0
         for o in w['objects']:
             if o.get('_compact'):
                 add('warning', w, o['index'], 'opaque_object',
@@ -991,10 +992,14 @@ def check(p: Project, window=None) -> list:
             if o['kind'] == 'Window' or not o['bbox']:
                 continue
             l, t, r, b = o['bbox']
-            if user and (r >= w['width'] + 4 or b >= w['height'] + 4):      # a frame drawn 1–3 px over the edge is usual
+            if user and (r >= w['width'] + 4 or b >= w['height'] + 4):
+                if l >= w['width'] or t >= w['height']:
+                    # целиком за окном: так уводят объекты, которые нельзя удалить (классы виджетов) — одна строка
+                    # на окно, а не по строке на объект
+                    beyond += 1
+                    continue
                 add('warning', w, o['index'], 'outside', f'{o["kind"]} {o["bbox"]} goes beyond the window '
-                    f'{w["width"]}×{w["height"]} — not seen on the panel' + (' at all' if l >= w['width'] or
-                                                                              t >= w['height'] else ' in full'))
+                    f'{w["width"]}×{w["height"]} — not seen on the panel in full')
             for (at, x, y), (text, font, size) in zip(o['_label_pos'], o['_lab']) if user else ():
                 if not text:
                     continue
@@ -1014,6 +1019,9 @@ def check(p: Project, window=None) -> list:
                 g = bytes(pay[slot:slot + 16])
                 if g in known and g not in groups:
                     add('error', w, o['index'], 'picture_missing', 'a file of its picture is not in the library')
+        if beyond:
+            add('info', w, None, 'outside_hidden', f'{beyond} объектов целиком за окном — на панели их не видно '
+                '(так уводят объекты, которые нельзя удалить: они задают классы виджетов проекта)')
     devs = {d['name'] for d in devices(p)['devices']}
     if tags and not any('opc' in d.lower() for d in devs):
         add('warning', None, None, 'device_opcua', 'в таблице есть теги OPC UA, но ни один объект не привязан к '

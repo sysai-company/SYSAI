@@ -806,6 +806,13 @@ def test_objects_that_define_a_widget_class_are_moved_out_of_the_start_window():
         assert w["objects"][o["index"]]["bbox"][0] > w["width"], "объект уведён за правый край окна"
     assert q.payload.count(b"\x0f\x80" + bytes(14)) == classes, "нумерация классов не изменилась"
     assert len(w["objects"]) == len(p.window(0)["objects"]), "объекты остались в проекте"
+    # уведённые объекты не сыплют по строке на объект: одна строка на окно (в системном окне check их не считает)
+    q2 = _menu_project()
+    q2.clone_window("Нория 1", "Окно 10", number=10)
+    ebpedit.hide_object(q2, 10, 1)
+    found = ebpedit.check(q2)
+    assert not [c for c in found if c["code"] == "outside"], "уведённые объекты не сыплют по строке на объект"
+    assert [c for c in found if c["code"] == "outside_hidden"], "но и молчать о них нельзя"
 
 
 def test_the_index_lists_every_window_object_and_picture_with_a_hash():
