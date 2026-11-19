@@ -362,12 +362,12 @@ def test_bundled_easybuilder_packages_download_without_publishing(client, net_ag
     before = client.get('/agents/api/hub/manifest', headers=net_agent['headers']).json()
     page = client.get('/hub')
     assert page.status_code == 200
-    for name, version, doc in [('ebpro-cmtp', '1.8.1', 'TOOL.md'),
+    for name, version, doc in [('ebpro-cmtp', '1.8.2', 'TOOL.md'),
                                ('ebpro-mnemoscheme', '1.1.0', 'SKILL.md'),
-                               ('ebpro-gui', '1.0.1', 'TOOL.md'), ('plc-kit', '1.6.1', 'TOOL.md'),
-                               ('machine-expert', '0.1.3', 'TOOL.md'), ('pic-index', '1.0.3', 'TOOL.md'),
-                               ('doc-kit', '1.1.1', 'TOOL.md'), ('plc-project', '2.6.1', 'SKILL.md'),
-                               ('project-docs', '1.1.0', 'SKILL.md'), ('drawing-kit', '1.1.1', 'TOOL.md'), ('plc-live', '1.0.1', 'TOOL.md')]:
+                               ('ebpro-gui', '1.0.2', 'TOOL.md'), ('plc-kit', '1.6.2', 'TOOL.md'),
+                               ('machine-expert', '0.1.4', 'TOOL.md'), ('pic-index', '1.0.4', 'TOOL.md'),
+                               ('doc-kit', '1.1.2', 'TOOL.md'), ('plc-project', '2.6.1', 'SKILL.md'),
+                               ('project-docs', '1.1.0', 'SKILL.md'), ('drawing-kit', '1.1.2', 'TOOL.md'), ('plc-live', '1.0.2', 'TOOL.md')]:
         assert f'/hub/bundled/{name}.zip' in page.text
         result = client.get(f'/hub/bundled/{name}.zip')
         assert result.status_code == 200
@@ -467,3 +467,22 @@ def test_ready_packages_say_what_is_new_and_install_in_one_step(client, net_agen
     page = client.get('/hub').text
     assert 'всё установлено' in page and 'nx-bundles" open' not in page and 'Установить все' not in page
     assert client.post('/hub/bundled/not-a-bundle/install', follow_redirects=False).headers['location'].startswith('/hub?error=')
+
+
+def test_a_long_tool_declares_its_timeout_and_hermes_gets_it():
+    """Hermes cuts an MCP call at 300 s; a compilation of Machine Expert (900 s by default) was cut and read as a dead
+    server. TOOL.md «timeout:» reaches the harness configuration of that server."""
+    from app.net import access
+    from pathlib import Path
+    seed = Path(__file__).resolve().parent.parent / "hub" / "seed"
+    meta, _ = hub.parse_skill_md((seed / "machine-expert" / "TOOL.md").read_text(encoding="utf-8"))
+    spec = hub.tool_spec(meta)
+    assert spec["timeout"] == 3700
+    assert "timeout" not in hub.tool_spec({"kind": "mcp", "run": "python server.py"})
+    assert "timeout" not in hub.tool_spec({"kind": "mcp", "run": "x", "timeout": "5"})    # nonsense is ignored
+    rules = access.normalize({"mcp": {"machine-expert": ["*"], "plc-kit": ["*"]}})
+    tools = [{"name": "machine-expert", "kind": "mcp", "version": "0.1.4", "spec": spec},
+             {"name": "plc-kit", "kind": "mcp", "version": "1.6.2", "spec": {"kind": "mcp", "run": "python server.py"}}]
+    cfg = access.render_hermes("opo-pc", rules, "https://sysai.example", tools)
+    assert cfg["mcp_servers"]["machine-expert"]["timeout"] == 3700
+    assert "timeout" not in cfg["mcp_servers"]["plc-kit"]

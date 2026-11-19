@@ -728,7 +728,7 @@ def _handle(msg):
         if method == "initialize":
             _out({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": str(params.get("protocolVersion") or PROTOCOL),
                   "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.8.1"},
+                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.8.2"},
                   "instructions": INSTRUCTIONS}})
         elif method == "ping":
             _out({"jsonrpc": "2.0", "id": mid, "result": {}})
@@ -739,7 +739,16 @@ def _handle(msg):
         else:
             _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"Method not found: {method}"}})
     except Exception as exc:  # noqa: BLE001 — одна ошибка не должна ронять сервер
-        _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}})
+        if method == "tools/call":  # a crash of one tool is its answer: a JSON-RPC error reads to Hermes as a dead server
+            import traceback
+            where = traceback.extract_tb(exc.__traceback__)[-1:]
+            at = f" ({os.path.basename(where[0].filename)}:{where[0].lineno})" if where else ""
+            text = (f"Внутренняя ошибка инструмента {params.get('name')}: {type(exc).__name__}: {exc}{at}. Сервер работает; "
+                    "проверьте аргументы и входные файлы (формат, обязательные поля) и повторите — если ошибка та же, "
+                    "сообщите инженеру этот текст.")
+            _out({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": text}], "isError": True}})
+        else:
+            _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}})
 
 
 def main():

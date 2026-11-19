@@ -694,6 +694,8 @@ def render_hermes(agent: str, rules: dict, server: str, tools=None, cache=()) ->
                 mcp[tool["name"]] = {"command": "sysai-agent", "args": ["mcp", tool["name"]],
                                      "env": {"SYSAI_ACCESS_FILE": "${SYSAI_HOME}/access.json", "SYSAI_URL": server,
                                              "SYSAI_TOOL_DIR": "${SYSAI_HOME}/tools/" + tool["name"]}}
+            if spec.get("timeout"):  # a long job (compilation, a program driven by the mouse) is not cut at 300 s
+                mcp[tool["name"]]["timeout"] = int(spec["timeout"])
     cfg = {
         "model": {"provider": "custom", "base_url": f"{server}/v1", "default": f"sysai/{main}",
                   "api_key": "${SYSAI_AGENT_TOKEN}"},

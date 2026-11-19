@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import drawkit  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 PAGE = 60
 PAGE_MAX = 500
 FILE = {"type": "string", "description": r"Файл PDF: схема Э3, технологическая схема, спецификация, например "
@@ -208,7 +208,16 @@ def _handle(msg):
         else:
             _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"Method not found: {method}"}})
     except Exception as exc:  # noqa: BLE001 — одна ошибка не должна ронять сервер
-        _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}})
+        if method == "tools/call":  # a crash of one tool is its answer: a JSON-RPC error reads to Hermes as a dead server
+            import traceback
+            where = traceback.extract_tb(exc.__traceback__)[-1:]
+            at = f" ({os.path.basename(where[0].filename)}:{where[0].lineno})" if where else ""
+            text = (f"Внутренняя ошибка инструмента {params.get('name')}: {type(exc).__name__}: {exc}{at}. Сервер работает; "
+                    "проверьте аргументы и входные файлы (формат, обязательные поля) и повторите — если ошибка та же, "
+                    "сообщите инженеру этот текст.")
+            _out({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": text}], "isError": True}})
+        else:
+            _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}})
 
 
 def main():

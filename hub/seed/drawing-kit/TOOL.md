@@ -2,7 +2,7 @@
 name: drawing-kit
 kind: mcp
 description: Читает схемы и чертежи в PDF без модели — листы схемы Э3, обозначения устройств (10KM1, 10SQ2), механизмы по номерам, модули контроллера и что стоит на их каналах, подписи, таблицы спецификации и перечня оборудования; ищет, где что нарисовано.
-version: 1.1.1
+version: 1.1.2
 run: python server.py
 platform: any
 tools: draw_sheets, draw_devices, draw_channels, draw_find, draw_text, draw_table

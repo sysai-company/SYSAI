@@ -195,7 +195,18 @@ def tool_spec(meta: dict) -> dict:
     platform = str(meta.get("platform") or "any").strip().lower()
     return {"kind": str(meta.get("kind") or "").strip().lower(), "run": str(meta.get("run") or "").strip()[:500],
             "url": str(meta.get("url") or "").strip()[:500], "platform": platform,
-            "tools": _items(meta.get("tools"))[:100], "requires": _items(meta.get("requires"))[:50]}
+            "tools": _items(meta.get("tools"))[:100], "requires": _items(meta.get("requires"))[:50],
+            **_timeout(meta.get("timeout"))}
+
+
+def _timeout(value) -> dict:
+    """«timeout: 3700» — seconds the harness waits for one call of the tool (Hermes cuts a call at 300 s otherwise:
+    a compilation of Machine Expert takes longer). Only when given, 10 s … 2 h."""
+    try:
+        seconds = int(str(value).strip())
+    except (TypeError, ValueError):
+        return {}
+    return {"timeout": seconds} if 10 <= seconds <= 7200 else {}
 
 
 # ----------------------------------------------------------------------------- archives

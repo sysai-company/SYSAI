@@ -139,6 +139,60 @@ def _error(msg_id, text: str) -> dict:
     return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32001, "message": f"SYSAI: {text}"}}
 
 
+# Hermes counts every failed call of a server — a JSON-RPC error and a result with isError alike — and after three in a
+# row it stops calling the WHOLE server for a minute («MCP server … is unreachable / rejected the last 3 calls»). A
+# refused path, an incomplete specification or a wrong argument is not a broken server, yet three of them in a row
+# made every tool of plc-kit «unavailable» for the agent, plc_stage_update included: the agent told the engineer that
+# the server stopped answering and gave up. So a call that failed is answered as a result whose text says so; only the
+# same call failing the same way again and again (a loop) keeps isError and lets Hermes stop it.
+REPEATS = 3
+
+
+def _failed_text(name: str, text: str, tool: str) -> str:
+    return (f"ОШИБКА ({name}/{tool}): {text}\n"
+            f"[SYSAI: сервер {name} работает и ответил — это ответ на ЭТОТ вызов, а не обрыв связи. Исправьте аргументы "
+            "или данные по тексту ошибки и вызовите снова; другие инструменты сервера доступны.]")
+
+
+def _failed(msg_id, name: str, tool: str, text: str, is_error: bool = False) -> dict:
+    result = {"content": [{"type": "text", "text": _failed_text(name, text, tool)}],
+              "structuredContent": {"ok": False, "error": text}}
+    if is_error:
+        result["isError"] = True
+    return {"jsonrpc": "2.0", "id": msg_id, "result": result}
+
+
+def _call_key(tool: str, args) -> str:
+    try:
+        return tool + "\0" + json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return tool + "\0" + repr(args)
+
+
+class Repeats:
+    """How many times in a row a call with exactly these arguments failed — a loop is what Hermes may stop."""
+    def __init__(self):
+        self.last, self.count = None, 0
+
+    def failed(self, key: str) -> bool:
+        """Count a failure; True — the same call failed REPEATS times in a row."""
+        self.count = self.count + 1 if key == self.last else 1
+        self.last = key
+        return self.count >= REPEATS
+
+    def ok(self, key: str) -> None:
+        if key == self.last:
+            self.last, self.count = None, 0
+
+
+def _result_text(result: dict) -> str:
+    parts = []
+    for block in result.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "text" and block.get("text"):
+            parts.append(str(block["text"]))
+    return "\n".join(parts) or "инструмент сообщил об ошибке без текста"
+
+
 def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
     home = Path(home or paths.home())
     stdin = stdin or sys.stdin.buffer
@@ -175,6 +229,11 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                             creationflags=0x08000000 if paths.WINDOWS else 0)
     lock = threading.Lock()
     lists = set()  # ids of tools/list requests: their answers are filtered
+    calls = {}     # id of a tools/call forwarded to the tool → (tool name, key of the call)
+    repeats = Repeats()
+
+    def refuse(msg_id, tool: str, args, text: str) -> None:
+        say(_failed(msg_id, name, tool, text, repeats.failed(_call_key(tool, args))))
 
     def say(obj) -> None:
         with lock:
@@ -188,6 +247,24 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
             except ValueError:
                 # a print or a traceback of the tool is not JSON-RPC: dropped, not forwarded raw — raw bytes of another
                 # code page would break Hermes' reader on Windows exactly like the arrow once did
+                continue
+            call = calls.pop(msg.get("id"), None) if isinstance(msg, dict) and msg.get("id") is not None else None
+            if call is not None:
+                tool, key = call
+                if isinstance(msg.get("error"), dict) or "result" not in msg:  # the tool raised: an answer, not a strike
+                    err = msg.get("error") if isinstance(msg.get("error"), dict) else {}
+                    say(_failed(msg["id"], name, tool, str(err.get("message") or "ошибка инструмента"), repeats.failed(key)))
+                    continue
+                result = msg.get("result")
+                if isinstance(result, dict) and result.get("isError"):
+                    again = repeats.failed(key)
+                    blocks = [b for b in (result.get("content") or []) if not (isinstance(b, dict) and b.get("type") == "text")]
+                    result["content"] = [{"type": "text", "text": _failed_text(name, _result_text(result), tool)}] + blocks
+                    if not again:
+                        result.pop("isError", None)
+                else:
+                    repeats.ok(key)
+                say(msg)
                 continue
             if isinstance(msg, dict) and msg.get("id") in lists and isinstance(msg.get("result"), dict):
                 lists.discard(msg.get("id"))
@@ -217,14 +294,17 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                     lists.add(item["id"])
                 if method == "tools/call":
                     params = item.get("params") if isinstance(item.get("params"), dict) else {}
+                    tool, targs = str(params.get("name") or ""), params.get("arguments") or {}
                     try:
-                        why = guard.check_call(str(params.get("name") or ""), params.get("arguments") or {})
+                        why = guard.check_call(tool, targs)
                     except Exception as exc:  # noqa: BLE001 — a broken rule answers with an error, it must not drop the connection
                         why = f"внутренняя ошибка проверки доступов SYSAI: {exc}"
                     if why:
                         if "id" in item:
-                            say(_error(item["id"], why))
+                            refuse(item["id"], tool, targs, "доступ SYSAI: " + why)
                         continue
+                    if "id" in item:
+                        calls[item["id"]] = (tool, _call_key(tool, targs))
                 forward.append(item)
             if not forward:
                 continue
@@ -232,6 +312,7 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
                 # the tool exited: a clear answer instead of silence, then close — Hermes marks it and the window restarts
                 for item in forward:
                     if isinstance(item, dict) and "id" in item:
+                        calls.pop(item["id"], None)
                         say(_error(item["id"], f"инструмент {name} завершился (код {proc.returncode}): перезапустите окно «Агент SYSAI»"))
                 break
             try:
@@ -241,6 +322,7 @@ def serve(name: str, home: Path | None = None, stdin=None, stdout=None) -> int:
             except (BrokenPipeError, OSError):
                 for item in forward:
                     if isinstance(item, dict) and "id" in item:
+                        calls.pop(item["id"], None)
                         say(_error(item["id"], f"инструмент {name} недоступен (соединение закрыто): перезапустите окно «Агент SYSAI»"))
                 break
     except (BrokenPipeError, OSError):

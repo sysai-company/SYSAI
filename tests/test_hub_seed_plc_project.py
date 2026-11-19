@@ -321,7 +321,7 @@ def test_the_server_builds_templates_and_maps(tmp_path):
     # the file is written and holds the program, but the template's channels still name the variables of the program
     # taken out: Machine Expert would not compile it, so the answer is an error that says which channels
     text = r[1]["content"][0]["text"]
-    assert r[1]["isError"] and "Новый проект" in text and "сходится" in text and "вынуто из шаблона" in text
+    assert not r[1].get("isError") and r[1]["structuredContent"]["ok"] is False and "Новый проект" in text and "сходится" in text and "вынуто из шаблона" in text
     assert "ОШИБКА привязок: 4 каналов" in text and "DI.I0 → Application.old_0" in text and "drop_undeclared" in text
     io = r[1]["structuredContent"]["io"]
     assert (io["bound"], io["free"], io["undeclared_count"]) == (4, 0, 4) and io["undeclared"][1]["variable"] == "Application.old_1"

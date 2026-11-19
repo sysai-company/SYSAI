@@ -374,8 +374,11 @@ def test_the_mcp_guard_checks_the_signed_rules_itself(client, pc):
     assert code == 0
     answers = {m["id"]: m for m in (json.loads(line) for line in out.getvalue().decode("utf-8").splitlines() if line.strip())}
     assert [t["name"] for t in answers[1]["result"]["tools"]] == ["read_doc", "write_report"]
-    ok = {i for i, m in answers.items() if "result" in m}
+    ok = {i for i, m in answers.items() if "result" in m and (m["result"].get("structuredContent") or {}).get("ok") is not False}
     assert ok == {1, 2, 7, 10, 12}, answers
+    # a refusal is an answer of the server, not a JSON-RPC error: Hermes counts errors and stops the whole server
+    for i in set(answers) - ok:
+        answers[i] = {"error": {"message": answers[i]["result"]["content"][0]["text"]}}
     assert "delete_all" in answers[3]["error"]["message"] and "не разрешён" in answers[3]["error"]["message"]
     assert "C:\\Windows" in answers[4]["error"]["message"] and "secret" in answers[5]["error"]["message"]
     assert "на запись" in answers[6]["error"]["message"] and "Архив" in answers[8]["error"]["message"]

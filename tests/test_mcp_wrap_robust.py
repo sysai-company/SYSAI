@@ -69,7 +69,7 @@ def test_a_broken_rule_answers_with_an_error_and_keeps_the_connection(home, monk
     assert code == 0
     answers = _answers(out)
     assert "result" in answers[1] and "result" in answers[3]          # the connection survived the broken rule
-    assert "внутренняя ошибка" in answers[2]["error"]["message"]
+    assert "внутренняя ошибка" in answers[2]["result"]["content"][0]["text"]
 
 
 def test_non_json_noise_of_the_tool_is_dropped_and_the_wire_stays_ascii(home, monkeypatch):
@@ -119,3 +119,58 @@ def test_a_signed_doc_without_rules_is_not_trusted_and_does_not_crash(home, monk
     monkeypatch.setattr(mcpwrap.signing, "verify", lambda signed, key, key_id="": True)
     guard.agent = {"public_key": "k"}
     assert guard.load() is None                                       # no «rules» key: not trusted, no exception
+
+
+# a tool that answers like the hub servers: an error for «bad», a JSON-RPC error for «boom», a result otherwise
+TOOLISH = (
+    "import json, sys\n"
+    "for line in sys.stdin:\n"
+    "    msg = json.loads(line)\n"
+    "    name = (msg.get('params') or {}).get('name')\n"
+    "    if name == 'boom':\n"
+    "        out = {'jsonrpc': '2.0', 'id': msg['id'], 'error': {'code': -32603, 'message': 'list index out of range'}}\n"
+    "    elif name == 'bad':\n"
+    "        out = {'jsonrpc': '2.0', 'id': msg['id'], 'result': {'content': [{'type': 'text', 'text': 'spec incomplete'}], 'isError': True}}\n"
+    "    else:\n"
+    "        out = {'jsonrpc': '2.0', 'id': msg['id'], 'result': {'content': [{'type': 'text', 'text': 'ok'}]}}\n"
+    "    sys.stdout.write(json.dumps(out) + '\\n')\n"
+    "    sys.stdout.flush()\n"
+)
+
+
+def _run_toolish(home, monkeypatch, calls):
+    folder = home / "tools" / "plc-kit"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "server.py").write_text(TOOLISH, encoding="utf-8")
+    _startable(home, monkeypatch, "plc-kit", [sys.executable, str(folder / "server.py")])
+    monkeypatch.setattr(mcpwrap.Guard, "check_call", lambda self, tool, args: "" if tool != "denied" else "папка C:\\x не разрешена")
+    out = io.BytesIO()
+    mcpwrap.serve("plc-kit", home, stdin=io.BytesIO(("\n".join(calls) + "\n").encode("utf-8")), stdout=out)
+    return _answers(out)
+
+
+def test_failed_calls_are_answers_so_hermes_does_not_pause_the_whole_server(home, monkeypatch):
+    """Three different failures in a row (tool error, exception, refusal) used to open Hermes' circuit breaker: every
+    tool of the server — plc_stage_update too — answered «unreachable» for a minute. Now each is a plain answer."""
+    calls = [_rpc(1, "tools/call", {"name": "bad", "arguments": {"a": 1}}),
+             _rpc(2, "tools/call", {"name": "boom", "arguments": {}}),
+             _rpc(3, "tools/call", {"name": "denied", "arguments": {}}),
+             _rpc(4, "tools/call", {"name": "plc_stage_update", "arguments": {}})]
+    answers = _run_toolish(home, monkeypatch, calls)
+    for i in (1, 2, 3):
+        res = answers[i]["result"]
+        assert "error" not in answers[i] and not res.get("isError"), answers[i]
+        assert res["content"][0]["text"].startswith("ОШИБКА") and "работает" in res["content"][0]["text"]
+        assert res.get("structuredContent", {}).get("ok") is False or i == 1
+    assert "spec incomplete" in answers[1]["result"]["content"][0]["text"]
+    assert "list index out of range" in answers[2]["result"]["content"][0]["text"]
+    assert "не разрешена" in answers[3]["result"]["content"][0]["text"]
+    assert answers[4]["result"]["content"][0]["text"] == "ok"
+
+
+def test_the_same_failing_call_in_a_loop_is_still_an_error(home, monkeypatch):
+    """A model repeating the very same failing call is a loop: the third time Hermes gets isError and may stop it."""
+    calls = [_rpc(i, "tools/call", {"name": "bad", "arguments": {"a": 1}}) for i in (1, 2, 3)]
+    answers = _run_toolish(home, monkeypatch, calls)
+    assert not answers[1]["result"].get("isError") and not answers[2]["result"].get("isError")
+    assert answers[3]["result"].get("isError") is True

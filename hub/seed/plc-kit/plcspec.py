@@ -254,7 +254,7 @@ def check(data: dict, channels=None) -> dict:
             add('error', where, f'канал «{ch}» — нужно «Устройство.Канал», как в plc_io: DI.I0, Module_5.I12, DQ.Q3 '
                                 '(«!» впереди — нормально замкнутый контакт)')
             continue
-        used.setdefault(ch.lower(), []).append(where)
+        used.setdefault(ch.lower(), []).append((where, bool(r['owner'])))
         way = _direction(ch)
         if way and r['dir'] in ('in', 'out') and way != r['dir']:
             add('error', where, f"{'вход' if r['dir'] == 'in' else 'выход'} стоит на канале {ch} — это "
@@ -269,7 +269,14 @@ def check(data: dict, channels=None) -> dict:
                                     f"{'вход' if r['dir'] == 'in' else 'выход'}")
     for ch, owners in used.items():
         if len(owners) > 1:
-            add('error', 'каналы', f'на канале {ch} два сигнала: {", ".join(owners[:6])}')
+            names = ", ".join(w for w, _ in owners[:6])
+            if any(m for _, m in owners) and any(not m for _, m in owners):
+                # the usual slip: a signal of a mechanism written out again in «signals»
+                add('error', 'каналы', f'на канале {ch} два сигнала: {names} — сигнал механизма повторён в signals. В '
+                                       'signals — только сигналы ВНЕ механизмов (аварийный стоп, общий пуск, давление): '
+                                       'уберите повтор из signals, у механизма канал уже есть')
+            else:
+                add('error', 'каналы', f'на канале {ch} два сигнала: {names}')
     if no_channel:
         add('warning', 'каналы', f'сигналов без канала: {no_channel} — они придут по сети или ещё не разведены; проверьте по схеме')
 
@@ -282,7 +289,9 @@ def check(data: dict, channels=None) -> dict:
                                      'тому, что уже выписано — иначе пропущенное не найти')
         elif want != counted[key]:
             add('error', 'expected', f'на схеме {ru}: {want}, в спецификации: {counted[key]} — '
-                                     f"{'не хватает' if want > counted[key] else 'лишних'} {abs(want - counted[key])}")
+                                     f"{'не хватает' if want > counted[key] else 'лишних'} {abs(want - counted[key])}"
+                                     + (' (expected.signals — ВСЕ сигналы: in/out механизмов плюс signals вне механизмов)'
+                                        if key == 'signals' else ''))
     free = None
     if known is not None:
         free = sum(1 for key in known if key not in used)

@@ -352,7 +352,7 @@ def test_server_reads_checks_and_builds(tmp_path):
         ("plc_build", {"src_dir": str(out / "st"), "out_file": str(out / "plc.xml")}), ("plc_info", {"path": str(out / "st")}),
         ("plc_info", {"path": str(tmp_path / "x.project")}), ("plc_pou", {"path": exp, "name": "Nope"}),
     ])
-    assert replies[0]["result"]["serverInfo"] == {"name": "plc-kit", "title": "ПЛК: Machine Expert, ST", "version": "1.6.1"}
+    assert replies[0]["result"]["serverInfo"] == {"name": "plc-kit", "title": "ПЛК: Machine Expert, ST", "version": "1.6.2"}
     assert [t["name"] for t in replies[1]["result"]["tools"]] == TOOLS
     r = [x["result"] for x in replies[2:]]
     assert json.loads(r[0]["content"][0]["text"])["pous"] == 3
@@ -578,7 +578,7 @@ def test_the_specification_is_complete_only_when_nothing_of_the_scheme_is_missin
     file = proj / "_work" / "spec" / "project.spec.json"
     assert file.is_file() and json.loads(file.read_text(encoding="utf-8"))["project"]["name"] == "Линия 1"
     empty = json.loads(r[3]["result"]["content"][0]["text"])
-    assert r[3]["result"]["isError"] and not empty["summary"]["complete"]      # an empty one is not a specification yet
+    assert not r[3]["result"].get("isError") and not empty["summary"]["complete"]      # an empty one is not a specification yet
     assert any("expected.mechanisms" in i["text"] for i in empty["issues"])
     assert "уже есть" in _server([("plc_spec_new", {"project_dir": str(proj)})])[2]["result"]["content"][0]["text"]
 
@@ -594,6 +594,9 @@ def test_the_specification_is_complete_only_when_nothing_of_the_scheme_is_missin
     assert any("не хватает 1" in t for t in errors(lambda s: s["mechanisms"].pop()) if "механизмов" in t)
     assert any("speed, belt" in t or "belt" in t for t in errors(lambda s: s["mechanisms"][0]["in"].pop("belt")))
     assert any("два сигнала" in t and "N1.speed" in t for t in errors(lambda s: s["mechanisms"][1]["in"].update(speed="DI.I0")))
+    # a mechanism signal repeated in «signals» (the slip in the field on 19.11): the message says what to remove
+    dup = errors(lambda s: s["signals"].append({"id": "N1_speed", "title": "x", "dir": "in", "channel": s["mechanisms"][0]["in"]["speed"]}))
+    assert any("повторён в signals" in t for t in dup), dup
     assert any("это выход контроллера" in t for t in errors(lambda s: s["mechanisms"][0]["in"].update(speed="DQ.Q7")))
     assert any("механизма C9" in t for t in errors(lambda s: s["mechanisms"][0]["interlocks"].update(stops=["C9"])))
     assert any("не описан в types" in t for t in errors(lambda s: s["mechanisms"][0].update(type="шнек")))

@@ -19,7 +19,7 @@ import plcspec  # noqa: E402
 import plcstage  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "1.6.1"
+VERSION = "1.6.2"
 PATH = {"type": "string", "description": r"Проект ПЛК: файл .project Machine Expert, .export или PLCopen .xml из него, "
                                          r"либо папка с файлами .st (plc_export_st), например C:\Projects\line\plc"}
 PROJECT = {"type": "string", "description": r"Файл проекта Machine Expert, например C:\Projects\line\plc\Line.project"}
@@ -327,7 +327,8 @@ def _call(name, args):
             lines.append("Дальше: plc_project_build {src_dir, template_file, out_file, io: clear}, затем plc_io_map с changes из "
                          "io_map этого ответа; логику защит и маршрутов проверяет инженер.")
             _CACHE.clear()
-            return _text("\n".join(lines), bool(errors), rep)
+            rep["ok"] = not errors  # written either way: errors of the check are work for the agent, not a failed call
+            return _text("\n".join(lines), data=rep)
         if name in ("plc_spec_new", "plc_spec_check"):
             file = args.get("out_file" if name == "plc_spec_new" else "file") or (
                 plcspec.path_of(args["project_dir"]) if args.get("project_dir") else "")
@@ -346,7 +347,7 @@ def _call(name, args):
             if args.get("io_map"):
                 changes = plcspec.io_changes(data)
                 out["io_map"] = {"count": len(changes), "changes": changes[:PAGE_MAX]}
-            return _text(_json(out), not got["summary"]["complete"])
+            return _text(_json(out))  # an incomplete specification is the answer the call asked for, not a failure
         if name == "plc_stage_update":
             got = plcstage.update(args["project_dir"], args.get("stage") or "", args.get("state") or "",
                                   args.get("note"), args.get("facts"))
@@ -427,7 +428,8 @@ def _call(name, args):
             for key in ("undeclared", "duplicates", "types"):  # the answer stays small; the numbers are whole
                 io_rep[key + "_count"] = len(io_rep[key])
                 io_rep[key] = io_rep[key][:50]
-            return _text("\n".join(lines), bad, rep)
+            rep["ok"] = not bad
+            return _text("\n".join(lines), data=rep)
         if name == "plc_project_template":
             rep = plcproj.template(args["path"], args["out_file"], bool(args.get("overwrite")), bool(args.get("clear_io")))
             left = rep["channels_with_variables"]
@@ -590,7 +592,16 @@ def _handle(msg):
         else:
             _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"Method not found: {method}"}})
     except Exception as exc:  # noqa: BLE001 — одна ошибка не должна ронять сервер
-        _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}})
+        if method == "tools/call":  # a crash of one tool is its answer: a JSON-RPC error reads to Hermes as a dead server
+            import traceback
+            where = traceback.extract_tb(exc.__traceback__)[-1:]
+            at = f" ({os.path.basename(where[0].filename)}:{where[0].lineno})" if where else ""
+            text = (f"Внутренняя ошибка инструмента {params.get('name')}: {type(exc).__name__}: {exc}{at}. Сервер работает; "
+                    "проверьте аргументы и входные файлы (формат, обязательные поля) и повторите — если ошибка та же, "
+                    "сообщите инженеру этот текст.")
+            _out({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": text}], "isError": True}})
+        else:
+            _out({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}})
 
 
 def main():
