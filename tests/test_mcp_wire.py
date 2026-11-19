@@ -30,7 +30,7 @@ def test_a_tool_call_answer_is_ascii_too(tool):
     """The connection broke on a tools/call on the real PC, not only on the first answer: the call path is checked too.
     An unknown tool name makes every server answer with an error — that answer must be ASCII JSON as well."""
     calls = ['{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}',
-             '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"__ascii_probe__","arguments":{}}']
+             '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"__ascii_probe__","arguments":{}}}']
     out = subprocess.run([sys.executable, str(ROOT / "hub" / "seed" / tool / "server.py")], input=("\n".join(calls) + "\n").encode("ascii"),
                          capture_output=True, timeout=120).stdout
     lines = [x for x in out.split(b"\n") if x.strip()]
