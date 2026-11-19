@@ -8,6 +8,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plcbuild  # noqa: E402
@@ -17,9 +18,10 @@ import plcgen  # noqa: E402
 import plcproj  # noqa: E402
 import plcspec  # noqa: E402
 import plcstage  # noqa: E402
+import plcstyle  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "1.6.3"
+VERSION = "1.7.0"
 PATH = {"type": "string", "description": r"Проект ПЛК: файл .project Machine Expert, .export или PLCopen .xml из него, "
                                          r"либо папка с файлами .st (plc_export_st), например C:\Projects\line\plc"}
 PROJECT = {"type": "string", "description": r"Файл проекта Machine Expert, например C:\Projects\line\plc\Line.project"}
@@ -107,6 +109,26 @@ TOOLS = [
         "экземпляры, правила имён, группы переменных, диапазоны адресов. По этому пишут следующий проект в том же стиле. "
         "out_file — записать страницу Markdown.",
         {"path": PATH, "out_file": {"type": "string", "description": r"Куда записать .md (в разрешённой на запись папке)"}}),
+    _rw("plc_style_save", "Сохранить стиль проекта",
+        "Разобрать готовый проект и записать его манеру как именованный стиль (Vendor, Достоево): регистр имён, "
+        "суффикс классов, группы глобального списка, плотность и язык комментариев, роли программ. Потом "
+        "plc_generate(style=...) пишет следующий проект в этой же манере. name — как стиль будут выбирать; "
+        "note — откуда он и чем примечателен. folder — своя папка стилей (по умолчанию ~/.sysai/styles).",
+        {"path": PATH, "name": {"type": "string", "description": "Имя стиля, например Vendor или Достоево"},
+         "note": {"type": "string", "description": "Заметка: откуда снят, чем примечателен"},
+         "folder": {"type": "string", "description": r"Папка стилей, например C:\Projects\_styles"}},
+        ("path", "name")),
+    _ro("plc_style_list", "Сохранённые стили",
+        "Какие стили уже сняты: имя, заметка, из какого проекта, регистр имён, суффикс классов, сколько программ и "
+        "классов. Пусто — стилей ещё нет, снимите первый через plc_style_save.",
+        {"folder": {"type": "string", "description": r"Папка стилей, например C:\Projects\_styles"}}, ()),
+    _ro("plc_style_show", "Стиль целиком",
+        "Сохранённый стиль как Markdown: программы и их роли, классы механизмов, правила имён, группы, адреса. "
+        "out_file — записать страницу в файл.",
+        {"name": {"type": "string", "description": "Имя стиля"},
+         "folder": {"type": "string", "description": r"Папка стилей, например C:\Projects\_styles"},
+         "out_file": {"type": "string", "description": r"Куда записать .md"}},
+        ("name",)),
     _ro("plc_link", "Связь панели и контроллера",
         "По моделям контроллера и панели решить, как панель говорит с ПЛК: OPC UA (оба умеют — переменные по именам, "
         "без адресов) или Modbus TCP / RTU (адреса %M). Модели можно назвать (controller, panel) или дать текст ТЗ "
@@ -162,7 +184,10 @@ TOOLS = [
         "не управляет, замечания и io_map — changes для plc_io_map после plc_project_build.",
         {"project_dir": {"type": "string", "description": "Папка проекта: спецификация _work/spec/project.spec.json → _work/st"},
          "spec_file": {"type": "string", "description": "Или путь к файлу спецификации"},
-         "out_dir": {"type": "string", "description": r"Или своя папка для файлов .st"}}, ()),
+         "out_dir": {"type": "string", "description": r"Или своя папка для файлов .st"},
+         "style": {"type": "string", "description": "Имя сохранённого стиля (plc_style_list): писать в той же манере — "
+                                                   "регистр имён, суффикс классов, группы"},
+         "style_folder": {"type": "string", "description": r"Папка стилей, если она не ~/.sysai/styles"}}, ()),
     _rw("plc_export_st", "Проект в папку ST",
         "Разложить проект в папку: по файлу .st на каждый POU, список переменных и тип + project.json (контроллер, задачи). "
         "В таком виде проект читают, правят и пишут с нуля; plc_build собирает папку обратно.",
@@ -310,7 +335,25 @@ def _call(name, args):
             out_dir = args.get("out_dir") or (os.path.join(base, "_work", "st") if base else "")
             if not spec_file or not out_dir:
                 return _text("Назовите папку проекта (project_dir) или файл спецификации и папку (spec_file, out_dir).", True)
-            rep = plcgen.generate(spec_file, out_dir)
+            style_name = str(args.get("style") or "").strip()
+            style_changes, style_issues = [], []
+            if style_name:
+                st = plcstyle.load(style_name, args.get("style_folder") or "")
+                spec, style_changes = plcstyle.apply_to_spec(plcspec.load(spec_file), st)
+                fd, styled = tempfile.mkstemp(suffix=".spec.json", prefix="sysai-style-")
+                os.close(fd)
+                try:
+                    with open(styled, "w", encoding="utf-8", newline="\n") as f:
+                        json.dump(spec, f, ensure_ascii=False, indent=1)
+                    rep = plcgen.generate(styled, out_dir)
+                finally:
+                    try:
+                        os.remove(styled)
+                    except OSError:
+                        pass
+                style_issues = plcstyle.compare(plcbuild.load_dir(out_dir).style(), st)
+            else:
+                rep = plcgen.generate(spec_file, out_dir)
             issues = plcbuild.load_dir(out_dir).check()
             errors = [i for i in issues if i["level"] == "error"]
             rep["check"] = {"errors": len(errors), "warnings": sum(1 for i in issues if i["level"] == "warning"),
@@ -319,6 +362,11 @@ def _call(name, args):
             rep["io_map"] = {"count": len(changes), "changes": changes[:PAGE_MAX]}
             lines = [f"Программа по спецификации → {out_dir}: механизмов {rep['mechanisms']}, маршрутов {rep['routes']}, каналов "
                      f"{rep['channels']}; файлов {len(rep['written'])}. Проверка: ошибок {len(errors)}."]
+            if style_name:
+                lines.append(f"Стиль «{style_name}»: переименовано имён — {len(style_changes)}." if style_changes
+                             else f"Стиль «{style_name}»: имена уже в его манере.")
+                lines += [f"Стиль: {i['text']}" for i in style_issues[:10]]
+                rep["style"] = {"name": style_name, "changes": style_changes[:PAGE_MAX], "issues": style_issues}
             if rep["outputs_nothing_drives"]:
                 lines.append("Выходы, которыми ничто не управляет (напишите логику в своём файле): " + ", ".join(rep["outputs_nothing_drives"][:30]))
             if rep["signals_without_channel"]:
@@ -452,6 +500,25 @@ def _call(name, args):
             rep = plcproj.set_io(args["path"], args["changes"], args["out_file"])
             _CACHE.clear()
             return _text(f"Каналов изменено: {len(rep['changed'])} → {rep['out_file']}", data=rep)
+        if name == "plc_style_list":
+            rows = plcstyle.listing(args.get("folder") or "")
+            if not rows:
+                return _text("Стилей ещё нет: снимите первый через plc_style_save на готовом проекте.",
+                             data={"styles": [], "folder": plcstyle.folder(args.get("folder") or "")})
+            lines = [f"Стилей: {len(rows)} · папка {plcstyle.folder(args.get('folder') or '')}", ""]
+            for r in rows:
+                lines.append(f"- {r['name']} — из {r['from'] or '—'}, программ {r['programs']}, классов {r['classes']}, "
+                             f"имена {r['case'] or '—'}, суффикс классов {r['class_suffix'] or 'нет'}"
+                             + (f"; {r['note']}" if r["note"] else ""))
+            return _text("\n".join(lines), data={"styles": rows})
+        if name == "plc_style_show":
+            st = plcstyle.load(args["name"], args.get("folder") or "")
+            md = plcme.style_markdown(st)
+            if args.get("out_file"):
+                os.makedirs(os.path.dirname(os.path.abspath(args["out_file"])), exist_ok=True)
+                with open(args["out_file"], "w", encoding="utf-8", newline="\n") as f:
+                    f.write(md)
+            return _text(md, data=st)
         p = _open(args["path"])
         if name == "plc_info":
             if str(args["path"]).lower().endswith((".project", ".projectarchive")):
@@ -553,6 +620,14 @@ def _call(name, args):
                 with open(args["out_file"], "w", encoding="utf-8", newline="\n") as f:
                     f.write(md)
             return _text(md, data=st)
+        if name == "plc_style_save":
+            st = p.style()
+            got = plcstyle.save(st, args["name"], args.get("note") or "", args.get("folder") or "")
+            return _text(f"Стиль «{got['name']}» сохранён: {got['file']}\n"
+                         f"Проект {st.get('project') or ''}, программ {len(st.get('programs') or [])}, "
+                         f"классов {len(st.get('classes') or [])}, регистр имён {(st.get('naming') or {}).get('case') or '—'}.\n"
+                         f"Дальше: plc_generate(style=\"{got['name']}\") — программа в этой же манере.",
+                         data={"name": got["name"], "file": got["file"], "style": st})
         if name == "plc_export_st":
             files = plcbuild.write_dir(p, args["out_dir"])
             return _text(f"Записано файлов: {len(files)} → {args['out_dir']}", data={"files": files})

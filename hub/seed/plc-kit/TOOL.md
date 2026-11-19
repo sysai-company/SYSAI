@@ -2,10 +2,10 @@
 name: plc-kit
 kind: mcp
 description: Читает, проверяет и собирает программу ПЛК Schneider Machine Expert / CODESYS на языке ST без Machine Expert — в том числе сам файл .project (читает любой и пишет настоящий из папки ST и шаблона), программы, блоки, переменные, адреса Modbus, каналы ввода-вывода, теги для панели (Modbus и OPC UA), стиль проекта, PLCopen XML; решает связь панели и контроллера по моделям из ТЗ и ведёт этапы проекта «под ключ».
-version: 1.6.3
+version: 1.7.0
 run: python server.py
 platform: any
-tools: plc_info, plc_pous, plc_pou, plc_variables, plc_addresses, plc_hmi_tags, plc_tag_check, plc_check, plc_style, plc_link, plc_stage_update, plc_spec_new, plc_spec_check, plc_generate, plc_export_st, plc_build, plc_project_build, plc_project_template, plc_io, plc_io_map
+tools: plc_info, plc_pous, plc_pou, plc_variables, plc_addresses, plc_hmi_tags, plc_tag_check, plc_check, plc_style, plc_style_save, plc_style_list, plc_style_show, plc_link, plc_stage_update, plc_spec_new, plc_spec_check, plc_generate, plc_export_st, plc_build, plc_project_build, plc_project_template, plc_io, plc_io_map
 requires: python>=3.11
 ---
 # ПЛК: Machine Expert / CODESYS, язык ST
@@ -202,6 +202,32 @@ XML в Machine Expert тоже не проверен.
 спецификации; что Machine Expert скомпилирует результат — это проверяет компиляция; что логика безопасна для
 объекта — это проверяет инженер. Встроенный блок после сброса аварии в автоматическом режиме запускается сам, если
 маршрут включён.
+
+## Стиль проекта: писать как вендор, а не «как получится»
+
+Стиль — это **манера**, а не смысл: регистр имён, суффикс классов, группы глобального списка, плотность и язык
+комментариев, роли программ. Смысл даёт спецификация; стиль говорит, как это записать.
+
+| Инструмент | Что делает |
+|---|---|
+| `plc_style` | разобрать готовый проект в профиль (ничего не пишет) |
+| `plc_style_save` `{path, name, note, folder}` | сохранить профиль под именем: `Vendor`, `Достоево` |
+| `plc_style_list` `{folder}` | какие стили уже сняты: имя, откуда, регистр, суффикс классов |
+| `plc_style_show` `{name, folder}` | стиль целиком как Markdown |
+| `plc_generate` `{…, style, style_folder}` | писать программу в манере стиля |
+
+Порядок: `plc_style_save` на проекте-образце → `plc_style_list` (убедиться, что стиль виден) → `plc_generate` с
+`style`. Стили лежат в `~/.sysai/styles` (или в папке из `folder` / `SYSAI_STYLES`), по файлу JSON на стиль.
+
+Что делает `plc_generate` со стилем: переписывает **имена** спецификации в его манере — механизмы, их блокировки,
+маршруты и глобальные сигналы переименовываются вместе, поэтому ссылки не разъезжаются; к своим блокам
+(`types.<вид>.fb`) добавляется суффикс классов стиля. Смысл не меняется: та же спецификация — та же программа,
+только записанная иначе. Расхождение со стилем, которое переименованием не лечится (другая доля комментариев,
+другие группы), называется в ответе, а не замалчивается.
+
+**Чего стиль не делает.** Он не переносит чужие блоки и не копирует чужой код: `types.<вид>.fb` должен лежать в
+папке проекта (`plc_export_st` из образца). Стиль не гарантирует, что вендор написал бы именно так — он
+воспроизводит то, что видно в профиле.
 
 ## Папка ST — как пишут проект с нуля
 
