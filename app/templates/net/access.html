@@ -122,17 +122,31 @@
 <h2 class="ac-title" id="models">Модели сети</h2>
 <p class="ac-lead">Какая модель OpenRouter стоит за каждым уровнем. Сменили здесь — сменилась у всех агентов сразу.</p>
 <form method="post" action="/agents/access/settings">
-<section class="card">
-  <div class="ac-models">
-    <div class="ac-models-h"><span>Уровень</span><span>Модель</span><span>Запасная</span></div>
-    {% for t in model_tiers %}<div class="ac-models-r"><span><b>sysai/{{ t }}</b><span class="small muted">{{ tier_ru[t] }}</span></span>
-      <input name="model_{{ t }}" value="{{ models[t] }}" placeholder="{{ vision_default if t == 'vision' else '' }}" aria-label="Модель sysai/{{ t }}" spellcheck="false">
-      <input name="fallback_{{ t }}" value="{{ fallbacks[t] }}" placeholder="нет запасной" aria-label="Запасная для sysai/{{ t }}" spellcheck="false"></div>{% endfor %}
-    <div class="ac-models-r"><span><b>sysai/auto</b><span class="small muted">модель под запрос</span></span><span class="small muted ac-span2">Своей модели нет: под каждый запрос её выбирает Jev Router среди моделей уровней, разрешённых агенту.<br><span class="{{ 'warn' if jev.state == 'resting' else '' }}" id="jev-status">{{ jev.text }}</span> <button class="btn sm" type="submit" formaction="/agents/access/jev-probe" formmethod="post" formnovalidate title="Один крошечный запрос через sysai/auto: отвечает ли Jev сейчас">Проверить Jev</button></span></div>
+<section class="card ac-models-card">
+  <div class="mdl-grid">
+    {% for t in model_tiers %}
+    <div class="mdl mdl-{{ t }}">
+      <div class="mdl-head">
+        <span class="mdl-tier">sysai/{{ t }}</span>
+        <span class="mdl-ru">{{ tier_ru[t] }}</span>
+      </div>
+      <label class="mdl-f"><span>Модель</span>
+        <input name="model_{{ t }}" value="{{ models[t] }}" placeholder="{{ vision_default if t == 'vision' else 'провайдер/модель' }}" aria-label="Модель sysai/{{ t }}" spellcheck="false"></label>
+      <label class="mdl-f"><span>Запасная</span>
+        <input name="fallback_{{ t }}" value="{{ fallbacks[t] }}" placeholder="нет запасной" aria-label="Запасная для sysai/{{ t }}" spellcheck="false"></label>
+    </div>
+    {% endfor %}
+    <div class="mdl mdl-auto">
+      <div class="mdl-head"><span class="mdl-tier">sysai/auto</span><span class="mdl-ru">модель под запрос</span></div>
+      <p class="mdl-note">Своей модели нет: под каждый запрос её выбирает Jev Router среди моделей уровней, разрешённых агенту.</p>
+      <p class="mdl-jev {{ 'warn' if jev.state == 'resting' else '' }}" id="jev-status">{{ jev.text }}</p>
+      <button class="btn sm" type="submit" formaction="/agents/access/jev-probe" formmethod="post" formnovalidate title="Один крошечный запрос через sysai/auto: отвечает ли Jev сейчас">Проверить Jev</button>
+    </div>
   </div>
   <details class="ac-more"><summary>Как работают запасная модель и кэш</summary>
     <p class="small muted">Запасная — лучше другого поставщика. Сбой у поставщика модели — OpenRouter сам переключается на запасную; всё равно ошибка (модели нет, перегружена) — шлюз спрашивает запасную ещё раз. В трассе видно: «ответила запасная», «mid→запасная: HTTP 503 …». Пусто — без запасной.</p>
     <p class="small muted">Кэш подсказок: Gemini, OpenAI и DeepSeek кэшируют сами; Claude и Kimi — по меткам Hermes, SYSAI объявляет их сам. Сколько пришло из кэша — в трассе и в расходах.</p></details>
+  <div class="ac-save"><button class="btn primary">Сохранить модели</button></div>
 </section>
 <h2 class="ac-title" id="limits">Ограничения сети</h2>
 <section class="card">
@@ -140,7 +154,7 @@
     <label class="f">Вызовов MCP в минуту на агента <input name="mcp_per_minute" type="number" min="1" value="{{ mcp_per_minute }}"></label>
     <label class="f">Сайты, к которым могут обращаться скрипты навыков <textarea name="hub_hosts" spellcheck="false">{{ hub_hosts }}</textarea><small class="muted">Сайт на строку</small></label>
   </div>
-  <div class="ac-save"><button class="btn primary">Сохранить модели и ограничения</button></div>
+  <div class="ac-save"><button class="btn primary">Сохранить ограничения</button></div>
 </section>
 </form>
 
