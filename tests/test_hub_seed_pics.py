@@ -248,6 +248,7 @@ def test_incremental_update(tmp_path, monkeypatch):
     # touched (same content), redrawn, renamed, deleted, added
     os.utime(root / "fan_run.jpg", (1_700_000_000, 1_700_000_000))
     (root / "lamps/lamp_red.gif").write_bytes(_gif(20, 20))
+    os.utime(root / "lamps/lamp_red.gif", (1_700_000_100, 1_700_000_100))  # mtime в миллисекундах: иначе запись в ту же мс не видна
     (root / "ShnekRightOn.png").rename(root / "noria" / "screw_right_run.png")
     (root / "img0042.png").unlink()
     (root / "насос_вкл.png").write_bytes(_png(12, 12, (9, 9, 9)))
