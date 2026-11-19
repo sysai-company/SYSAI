@@ -1,0 +1,2 @@
+# The one-click installer is a Windows binary: never let git touch its bytes.
+*.exe binary
