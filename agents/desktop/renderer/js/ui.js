@@ -69,15 +69,22 @@ export function menuOpenFor(anchor) {
 }
 
 let toasts = null;
-export function toast(text, kind = 'info', ms = 5000) {
+// kind: info | ok | warn | err | update. action: {label, onClick} — a button inside the toast.
+export function toast(text, kind = 'info', ms = 5000, action = null) {
   if (!toasts) {
     toasts = h('div', { class: 'toasts' });
     document.body.append(toasts);
   }
-  const el = h('div', { class: `toast ${kind}` }, icon(kind === 'err' ? 'alert' : kind === 'ok' ? 'check' : 'info'), h('span', { text }));
+  const icons = { err: 'alert', warn: 'alert', ok: 'check', update: 'download' };
+  const el = h('div', { class: `toast ${kind}` }, icon(icons[kind] || 'info'), h('span', { text }));
+  if (action && action.label) {
+    const b = h('button', { class: 'toast-act', text: action.label });
+    b.addEventListener('click', (e) => { e.stopPropagation(); el.remove(); action.onClick?.(); });
+    el.append(b);
+  }
   toasts.append(el);
   const close = () => el.remove();
   el.addEventListener('click', close);
-  setTimeout(close, ms);
+  if (ms > 0) setTimeout(close, ms);
   return el;
 }

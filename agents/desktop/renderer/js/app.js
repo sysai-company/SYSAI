@@ -903,7 +903,13 @@ async function main() {
   api.auto.onState((state) => { S.auto = state; composer.update(); });
   api.auto.onToggle(() => setAuto(!S.auto.on));
   api.win.onShow(({ path, line }) => openPath(path, line));
-  api.win.onNotice(({ text, kind }) => toast(text, kind || 'info', 15000));
+  api.win.onNotice(({ text, kind }) => {
+    if (kind === 'update') {
+      toast(text, 'update', 0, { label: 'Перезапустить', onClick: () => api.win.relaunch().catch(() => {}) });
+      return;
+    }
+    toast(text, kind || 'info', 15000);
+  });
   const reopen = localStorage.getItem('sysai.pane.open');
   if (reopen === 'files' || reopen === 'storage' || reopen === 'canvas') pane.show(reopen);
   onAcpState(await api.acp.state().catch(() => ({ state: 'error', message: 'нет связи с основным процессом окна' })));

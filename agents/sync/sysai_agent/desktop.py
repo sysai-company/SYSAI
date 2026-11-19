@@ -79,14 +79,15 @@ def current(home, got: dict) -> bool:
 
 
 def due(home, state: dict, now: float | None = None) -> dict:
-    """The offer to install in the background now ({} — nothing): Windows, «обновлять сами», not what is installed,
-    not tried within RETRY."""
+    """The offer to install in the background now ({} — nothing): Windows, «обновлять сами» (or «обновить сейчас»
+    from SYSAI), not what is installed, not tried within RETRY."""
     got = state.get("desktop_offer") if isinstance(state.get("desktop_offer"), dict) else {}
-    if not paths.WINDOWS or not got.get("auto_update") or current(home, got):
+    if not paths.WINDOWS or not (got.get("auto_update") or state.get("update_force")) or current(home, got):
         return {}
     tried = state.get("desktop_try") if isinstance(state.get("desktop_try"), dict) else {}
     now = time.time() if now is None else now
-    if tried.get("sha256") == got.get("sha256") and now - float(tried.get("at") or 0) < RETRY:
+    at = float(tried.get("at") or 0)
+    if tried.get("sha256") == got.get("sha256") and at and now - at < RETRY:
         return {}
     return got
 
@@ -352,7 +353,8 @@ def install(home, client, got: dict, say=None, shortcuts: bool | None = None, op
             fsutil.write_json(folder(home) / "desktop.json", info)
         _cleanup(home, [electron, app])
         if before and before.get("sha256") != info["sha256"]:
-            notify(home, UPDATED)
+            notify(home, f"Установлена новая версия окна агента {info['version']}: перезапустите окно, чтобы её открыть",
+                   kind="update")
         return info
     finally:
         lock.unlink(missing_ok=True)

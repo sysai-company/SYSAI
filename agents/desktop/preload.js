@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('sysai', {
   win: {
     overlay: (color) => call('win:overlay', color),
     logs: () => call('app:logs'),
+    relaunch: () => call('app:relaunch'),
     onShow: on('ui:show'),
     onNotice: on('ui:notice'),
   },

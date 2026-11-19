@@ -272,6 +272,15 @@ function sendOrQueue(channel, payload) {
   else queue.push([channel, payload]);
 }
 
+// The build the synchronizer installed last (desktop.json): newer than this window means «перезапустите».
+function installedVersion() {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(DESK, 'desktop.json'), 'utf8')).version || '');
+  } catch {
+    return '';
+  }
+}
+
 function showInWindow(target) {
   sendOrQueue('ui:show', target);
   if (win && win.isMinimized()) win.flashFrame(true);
@@ -621,7 +630,8 @@ async function startBridge() {
         return out;
       },
       notice: async (body) => {
-        sendOrQueue('ui:notice', { text: String(body.text || '').slice(0, 600), kind: body.kind === 'err' ? 'err' : 'info' });
+        const kind = ['err', 'warn', 'ok', 'update'].includes(body.kind) ? body.kind : 'info';
+        sendOrQueue('ui:notice', { text: String(body.text || '').slice(0, 600), kind });
         return {};
       },
     },
@@ -681,6 +691,11 @@ function ipc() {
     return { version: VERSION, electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform,
       home: HOME, agent: cfg.agent, profile: cfg.profile, server: cfg.server, person: cfg.person, connected: cfg.connected,
       hermes: hermesPath(cfg), homedir: os.homedir() };
+  });
+  handle('app:relaunch', () => {
+    app.relaunch();
+    app.exit(0);
+    return true;
   });
   handle('acp:state', () => acpInfo);
   handle('acp:restart', () => restartAcp());
@@ -836,6 +851,14 @@ function ipc() {
     while (queue.length) {
       const [channel, payload] = queue.shift();
       event.sender.send(channel, payload);
+    }
+    // a newer build was installed while this window was closed: say so, the person restarts when it suits
+    const installed = installedVersion();
+    if (installed && installed !== VERSION) {
+      event.sender.send('ui:notice', {
+        text: `Установлена новая версия окна агента ${installed}. Перезапустите окно, чтобы её открыть.`,
+        kind: 'update',
+      });
     }
   });
 }
