@@ -47,12 +47,14 @@ def offer(doc: dict) -> dict:
 
 
 def due(state: dict, now: float | None = None) -> dict:
-    """The offer to install now ({} — nothing): automatic updates on, newer than this one, not tried within RETRY."""
+    """The offer to install now ({} — nothing): automatic updates on (or «обновить сейчас» from SYSAI), newer than
+    this one, not tried within RETRY."""
     got = state.get("offer") if isinstance(state.get("offer"), dict) else {}
-    if not got.get("auto_update") or not newer(got.get("version", "")):
+    if not (got.get("auto_update") or state.get("update_force")) or not newer(got.get("version", "")):
         return {}
     now = time.time() if now is None else now
-    if state.get("update_to") == got["version"] and now - float(state.get("update_at") or 0) < RETRY:
+    tried = float(state.get("update_at") or 0)
+    if state.get("update_to") == got["version"] and tried and now - tried < RETRY:
         return {}
     return got
 
@@ -116,6 +118,7 @@ def start(home: Path, wheel: Path, version: str, state: dict, popen=None) -> boo
     path = home / SCRIPT
     fsutil.atomic_write(path, "\ufeff" + script(home, wheel, version, os.getpid()))  # BOM: PowerShell 5.1 reads UTF-8
     state.update(update_to=version, update_at=time.time())  # not again before RETRY, whatever the helper does
+    state.pop("update_force", None)  # «обновить сейчас» is spent: the next try is the usual one
     fsutil.write_json(home / "state.json", state)
     try:
         popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(path)],

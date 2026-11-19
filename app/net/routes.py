@@ -146,7 +146,8 @@ def agents_page(request: Request, msg: str = "", error: str = ""):
     spend = gateway.summary(days=1)["by_agent"]
     return _page(request, "net/agents.html", agents=agents.listing(me), boss=boss, msg=msg, error=error,
                  spend=spend, profiles=access.profiles() if boss else [], harnesses=agents.HARNESSES,
-                 can_create=boss or len(agents.listing(me)) < MAX_OWN_AGENTS, **_choices())
+                 can_create=boss or len(agents.listing(me)) < MAX_OWN_AGENTS,
+                 sync_version=installer.version(), desktop_version=desktop.version(), **_choices())
 
 
 # ============================================================================= pages: spend
@@ -272,6 +273,23 @@ def agent_trace_text(request: Request, agent_id: int, text_id: int):
                  response_text=json.dumps(item["response"], ensure_ascii=False, indent=2, default=str))
 
 
+@router.post("/agents/update")
+async def agents_update(request: Request):
+    """«Обновить всех» или выбранных: каждый компьютер обновится при следующем пульсе."""
+    me = _person(request)
+    if me["role"] != "superuser":
+        raise HTTPException(403, "Обновлять агентов сети может суперпользователь")
+    form = await request.form()
+    scope = str(form.get("scope") or "")
+    ids = [int(i) for i in form.getlist("ids") if str(i).isdigit()]
+    if scope != "all" and not ids:
+        return _back("/agents", error="Отметьте агентов галочками или нажмите «Обновить всех»")
+    n = agents.request_update(None if scope == "all" else ids, by=me["username"])
+    what = "все агенты" if scope == "all" else "выбранные агенты"
+    return _back("/agents", msg=f"Обновление запрошено: {what} ({n}). Компьютеры поставят последнюю версию "
+                                "при следующем пульсе — до 5 минут")
+
+
 @router.post("/agents/{agent_id:int}/{action}")
 async def agent_action(request: Request, agent_id: int, action: str):
     me = _person(request)
@@ -292,6 +310,10 @@ async def agent_action(request: Request, agent_id: int, action: str):
             return _back(f"/agents/{agent_id}/trace", msg=f"Режим отладки включён на {trace.DEBUG_HOURS} ч: SYSAI сохраняет "
                                                          "тексты запросов, ответов и вызовов MCP" if on else
                          "Режим отладки выключен: тексты больше не сохраняются")
+        if action == "update":
+            agents.request_update([agent_id], by=me["username"])
+            return _back(f"/agents/{agent_id}", msg="Обновление запрошено: компьютер получит его при следующем пульсе "
+                                                    "(до 5 минут) и поставит последнюю версию сам")
         if action == "delete" and boss:
             agents.delete(agent_id, by=me["username"])
             return _back("/agents", msg=f"Агент {agent.name} удалён")
@@ -814,6 +836,27 @@ def download_agent_installer(request: Request):
     return Response(data, media_type="application/octet-stream",
                     headers={"Content-Disposition": 'attachment; filename="SYSAI-install.ps1"',
                              "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def _exe_response(data: bytes, name: str) -> Response:
+    return Response(data, media_type="application/vnd.microsoft.portable-executable",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"',
+                             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/agents/download/SYSAI-Setup.exe")
+def download_agent_setup(request: Request, code: str = ""):
+    """The one-click installer: a real .exe with this server (and the code, when given) inside."""
+    _person(request)
+    return _exe_response(installer.exe(_server(request), code), installer.exe_name())
+
+
+@router.get("/agents/{agent_id:int}/setup.exe")
+def agent_setup(request: Request, agent_id: int, code: str = ""):
+    """The same installer for one agent: the file is named after it and carries its one-time code."""
+    me = _person(request)
+    agent = _own_agent(me, agent_id)
+    return _exe_response(installer.exe(_server(request), code), installer.exe_name(agent.name))
 
 
 @router.get("/agents/api/public-key")

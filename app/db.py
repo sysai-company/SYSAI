@@ -1220,6 +1220,7 @@ def init_db():
     _add_column_if_missing("net_access_profiles", "given", "given JSON")
     _add_column_if_missing("net_agents", "debug_until", "debug_until TIMESTAMP")
     _add_column_if_missing("net_agents", "debug_by", "debug_by VARCHAR(64) DEFAULT ''")
+    _add_column_if_missing("net_agents", "update_rev", "update_rev INTEGER DEFAULT 0")
     _add_column_if_missing("meetings", "options", "options JSON")
     _add_column_if_missing("meetings", "waveform", "waveform JSON")
     _add_column_if_missing("meetings", "recording_status", "recording_status VARCHAR(12) DEFAULT ''")

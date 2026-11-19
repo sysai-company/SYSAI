@@ -25,6 +25,7 @@ class NetAgent(Base):
     created_by = Column(String(64), default="")
     debug_until = Column(DateTime(timezone=True), nullable=True)       # the debug mode: full texts in the trace until then
     debug_by = Column(String(64), default="")
+    update_rev = Column(Integer, default=0)                            # «обновить сейчас»: the pulse carries it, the PC updates at once
 
 
 class NetAgentToken(Base):

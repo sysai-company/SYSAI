@@ -316,7 +316,24 @@ def heartbeat(ctx: AgentCtx, data: dict) -> dict:
         s.commit()
     from . import installer
     return {"ok": True, "access_rev": access.document(ctx.agent_id)["rev"], "hub_rev": hub.manifest(ctx)["rev"],
-            "sync_version": installer.version(), "server_time": now().isoformat(timespec="seconds")}
+            "sync_version": installer.version(), "update_rev": int(agent.update_rev or 0),
+            "server_time": now().isoformat(timespec="seconds")}
+
+
+def request_update(agent_ids=None, by: str = "") -> int:
+    """«Обновить сейчас»: a new revision in the pulse makes the synchronizer update at once, not after RETRY.
+
+    agent_ids — only these agents; None — every agent of the network. Returns how many were asked."""
+    with SessionLocal() as s:
+        q = s.query(NetAgent)
+        if agent_ids:
+            q = q.filter(NetAgent.id.in_([int(i) for i in agent_ids]))
+        agents = q.all()
+        for a in agents:
+            a.update_rev = int(a.update_rev or 0) + 1
+        journal.log("agent.update", f"{len(agents)} агент(ов)", {"кто": by}, actor=by, session=s)
+        s.commit()
+    return len(agents)
 
 
 def listing(user: dict | None = None) -> list:
@@ -339,5 +356,6 @@ def listing(user: dict | None = None) -> list:
                         "department": depts.get(a.department_id, ""), "harness": HARNESSES.get(a.harness, a.harness),
                         "host": a.host, "versions": a.versions or {}, "last_seen_at": a.last_seen_at,
                         "last_error": a.last_error, "profile": doc["profile"]["name"], "rev": doc["rev"],
-                        "applied_rev": row.applied_rev if row else "", "applied_at": row.applied_at if row else None})
+                        "applied_rev": row.applied_rev if row else "", "applied_at": row.applied_at if row else None,
+                        "update_rev": int(a.update_rev or 0)})
         return out

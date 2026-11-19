@@ -255,6 +255,13 @@ def pulse(home: Path, client: Client, state: dict, error: str | None = None) -> 
             "hub": hubsync.summary(state), "error": state.get("error", "") if error is None else error}
     answer = client.json("POST", "/agents/api/heartbeat", data)
     state["pulse_at"] = now()
+    # «Обновить сейчас» из SYSAI: a new revision means update at once, not after update.RETRY
+    forced = int(answer.get("update_rev") or 0) if isinstance(answer, dict) else 0
+    if forced and forced != int(state.get("update_rev") or 0):
+        state["update_rev"] = forced
+        state["update_force"] = forced
+        state.pop("update_at", None)
+        state.pop("desktop_try", None)
     return answer
 
 

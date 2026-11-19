@@ -13,7 +13,9 @@
   <p><span class="net-code">{{ code }}</span></p>
   <p>На ПК сотрудника откройте PowerShell (обычный, не от администратора) и вставьте одну строку. Установится клиент «Агент SYSAI» с ярлыком:</p>
   <pre class="net-pre">$env:SYSAI_CODE='{{ code }}'; irm {{ server }}/agents/api/install.ps1 | iex</pre>
-  <p><a href="/agents/download/install.ps1">Скачать скрипт установщика Windows</a> — при отдельном запуске скрипт попросит код выше.</p>
+  <p><a class="btn primary" href="/agents/{{ a.id }}/setup.exe?code={{ code }}">Скачать установщик (.exe)</a>
+     <a class="btn" href="/agents/download/install.ps1">Скрипт PowerShell</a></p>
+  <p class="small muted">В файле уже этот сервер и код — на ПК останется запустить его двойным щелчком. Скрипт PowerShell — если удобнее строка ниже.</p>
   <p class="small muted">Установщик ставит uv, синхронизатор SYSAI и Hermes (чего нет), создаёт профиль Hermes «{{ a.name }}», применяет доступы, характер и навыки из SYSAI_Hub и включает синхронизацию при входе в Windows. Повторный запуск (с новым кодом) ничего не ломает: обновляет то же самое.</p>
   <dl class="net-kv"><dt>Сервер</dt><dd>{{ server }}</dd>
     <dt>Синхронизатор уже стоит</dt><dd><code>sysai-agent connect --server {{ server }} --code {{ code }}</code>, затем <code>sysai-agent sync</code></dd></dl>
@@ -40,6 +42,7 @@
   <div class="actions" style="margin-top:14px">
     {% if agent.status != 'disabled' %}
     <form method="post" action="/agents/{{ a.id }}/connect"><button class="btn primary">{{ 'Подключить другой компьютер' if agent.status == 'active' else 'Получить код подключения' }}</button></form>
+    <form method="post" action="/agents/{{ a.id }}/update"><button class="btn" title="Поставить последнюю версию синхронизатора и окна при следующем пульсе">Обновить сейчас</button></form>
     <form method="post" action="/agents/{{ a.id }}/disable" onsubmit="return confirm('Отключить {{ a.name }}? Токен будет отозван сразу.')"><button class="btn danger">Отключить</button></form>
     {% else %}
     <form method="post" action="/agents/{{ a.id }}/enable"><button class="btn primary">Включить</button></form>

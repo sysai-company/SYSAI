@@ -10,7 +10,13 @@ from pathlib import Path
 AGENTS = Path(__file__).resolve().parents[2] / "agents"
 SYNC = AGENTS / "sync"
 SCRIPT = AGENTS / "installer" / "install.ps1"
+EXE = AGENTS / "installer" / "SYSAI-Setup.exe"
 PACKAGE = "sysai_agent"
+# the bootstrapper carries this marker and 1024 zero bytes after it (agents/installer/bootstrapper.c):
+# the server writes the address and the one-time code there, so the downloaded file installs in one double click
+MARKER = b"SYSAI-CFG-V1"
+FIELD = 512
+BLOCK = FIELD * 2
 REQUIRES = ("cryptography>=41", "PyYAML>=6", 'keyring>=24; sys_platform == "win32"')
 _cache: dict = {}
 
@@ -78,3 +84,22 @@ def script(server: str) -> str:
 
 def one_liner(server: str, code: str) -> str:
     return f"$env:SYSAI_CODE='{code}'; irm {server.rstrip('/')}/agents/api/install.ps1 | iex"
+
+
+def exe(server: str, code: str = "") -> bytes:
+    """The one-click installer: the bootstrapper with this server and the one-time code written inside.
+
+    The file is the same for everyone (agents/installer/SYSAI-Setup.exe, built by build.sh); only the
+    configuration block changes, so the download is a byte copy with 1024 bytes replaced."""
+    data = bytearray(EXE.read_bytes())
+    at = data.find(MARKER)
+    if at < 0 or at + len(MARKER) + BLOCK > len(data):
+        raise FileNotFoundError("SYSAI-Setup.exe: нет блока настроек — пересоберите agents/installer/build.sh")
+    server_b = server.rstrip("/").encode("utf-8")[:FIELD - 1]
+    code_b = (code or "").strip().encode("utf-8")[:FIELD - 1]
+    data[at + len(MARKER):at + len(MARKER) + BLOCK] = server_b.ljust(FIELD, b"\0") + code_b.ljust(FIELD, b"\0")
+    return bytes(data)
+
+
+def exe_name(agent: str = "") -> str:
+    return f"SYSAI-Setup-{agent}.exe" if agent else "SYSAI-Setup.exe"
