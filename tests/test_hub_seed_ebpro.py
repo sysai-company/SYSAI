@@ -757,12 +757,54 @@ def test_a_new_project_from_a_base_keeps_the_system_windows_and_empties_the_rest
     assert [(w["number"], w["name"]) for w in s.windows()] == [
         (0, "Главное"), (1, "Главное окно"), (2, "Настройки"), (13, "Нория 3"), (14, "Keypad 1 - Integer")]
     left = {o["index"] for o in r["start"]["left"]}
-    assert r["start"]["objects"] == len(left) == len(s.window(1)["objects"]) - 1      # what stays is named
+    hidden = {o["index"] for o in r["start"]["hidden"]}
+    assert r["start"]["objects"] == len(left) + len(hidden) == len(s.window(1)["objects"]) - 1   # what stays is named
     out = tmp_path / "new.cmtp"
     res = server._call("cmtp_new", {"base": str(base), "out_file": str(out), "keep": ["13"], "start": 1})
     assert not res.get("isError") and out.exists() and res["structuredContent"]["deleted"]
     assert server._call("cmtp_new", {"base": str(base), "out_file": str(base)})["isError"]
     assert Project.load(str(base)).window(12)["name"] == "Нория 2"                  # the base is not touched
+
+
+def test_deleting_windows_in_one_edit_gives_the_same_project_as_one_by_one():
+    base = _menu_project()
+    for n in range(10, 20):
+        base.clone_window("Нория 1", f"Окно {n}", number=n)
+    a = ebpcmtp.Project.load(base.dump())
+    b = ebpcmtp.Project.load(base.dump())
+    ebpedit.delete_windows(a, list(range(10, 20)))
+    for n in range(10, 20):
+        ebpedit.delete_window(b, n)
+    assert a.payload == b.payload
+
+
+def test_a_new_project_reads_the_project_once_not_once_per_window(monkeypatch):
+    """85 windows of a real cMT project took 88 s: every delete re-read the whole project. The batch path reads it
+    a few times, whatever the number of windows."""
+    p = _menu_project()
+    for n in range(10, 40):
+        p.clone_window("Нория 1", f"Окно {n}", number=n)
+    calls = []
+    real = ebpedit._map_info
+    monkeypatch.setattr(ebpedit, "_map_info", lambda *a, **k: calls.append(1) or real(*a, **k))
+    ebpedit.new_project(p, start=0)
+    assert len(calls) < 10, f"проект прочитан {len(calls)} раз — снова по разу на окно"
+
+
+def test_objects_that_define_a_widget_class_are_moved_out_of_the_start_window():
+    """The first object of a kind defines the widget class of the whole project: it cannot be deleted, so the start
+    window is emptied by moving it out of the frame — the class numbering stays, the panel shows nothing."""
+    p = _menu_project()
+    classes = p.payload.count(b"\x0f\x80" + bytes(14))
+    r = ebpedit.new_project(p, start=0)
+    q = _reload(p)
+    assert r["start"]["hidden"], "в окне 0 есть объекты, задающие классы виджетов"
+    assert not r["start"]["left"], "всё, что нельзя удалить, уводится за окно"
+    w = q.window(0)
+    for o in r["start"]["hidden"]:
+        assert w["objects"][o["index"]]["bbox"][0] > w["width"], "объект уведён за правый край окна"
+    assert q.payload.count(b"\x0f\x80" + bytes(14)) == classes, "нумерация классов не изменилась"
+    assert len(w["objects"]) == len(p.window(0)["objects"]), "объекты остались в проекте"
 
 
 def test_settings_reference_shadow_and_coinciding_data_do_not_block_an_edit():

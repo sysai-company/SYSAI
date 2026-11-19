@@ -66,6 +66,77 @@ def delete_object(p: Project, window, index: int) -> None:
     _guarded(p, run)
 
 
+def delete_windows(p: Project, numbers) -> list:
+    """Delete several windows in one edit: one map of the project, one splice, one check.
+
+    Deleting them one by one re-reads the whole project for every window (85 windows of a real cMT project took
+    minutes); the result is the same. Returns the function keys that still lead to the deleted windows."""
+    pay, ws = p.payload, p.windows()
+    targets = [p.window(n) for n in numbers]
+    if not targets:
+        return []
+    for w in targets:
+        if w['number'] < SYSTEM_WINDOWS:
+            raise ValueError(f'window {w["number"]} belongs to EasyBuilder; it is not deleted')
+        _whole(w, 'deleting it')
+        _sure(w, 'deleting it')
+    info = _map_info(pay, ws)
+    inserts = []
+    for w in targets:
+        s, e = w['offset'] - 4, w['_rec_end']
+        if pay[s:s + 4] != _SLOT:
+            raise ValueError('the number slot of the window is not where expected')
+        if any(pay.find(d, s, e) != -1 for d in (_PART_DEF, _DRAW_DEF)):
+            raise ValueError('the window defines the widget classes of the project; it cannot be deleted')
+        _check_range(pay, s, e, info, 'deleting')
+        inserts.append((s, e - s, bytes(4), -map_slots(w)))
+    before = collections.Counter((w['guid'], w['number']) for w in ws)
+    for w in targets:
+        before[(w['guid'], w['number'])] -= 1
+    before += collections.Counter()     # drops a window that was the only one with its GUID
+    gone = {w['number'] for w in targets}
+
+    def run():
+        p._insert(info, inserts)
+        if _numbers(p) != before:
+            raise ValueError('window numbers moved after the delete; the project is left unchanged')
+    _guarded(p, run)
+    return [ln for ln in p.links() if ln['target'] in gone and ln['window'] not in gone]
+
+
+def delete_objects(p: Project, window, indices) -> None:
+    """Delete several objects of one window in one edit (later objects move up by the count deleted before them)."""
+    pay, ws = p.payload, p.windows()
+    w = p.window(window)
+    _whole(w, 'deleting from it')
+    objs = w['objects']
+    idx = sorted({int(i) for i in indices})
+    if not idx:
+        return
+    if idx[-1] == len(objs) - 1:
+        _sure(w, 'deleting its last object')
+    info = _map_info(pay, ws)
+    inserts, per_layer = [], collections.Counter()
+    for i in idx:
+        o = objs[i]
+        if o['kind'] == 'Window':
+            raise ValueError('the window object itself cannot be deleted (delete the window: delete_window)')
+        s, e = o['offset'], o['offset'] + o['length']
+        if pay[s:s + 2] == b'\xff\xff':
+            raise ValueError('this object defines the widget class of the whole project; it cannot be deleted')
+        _check_range(pay, s, e, info, 'deleting')
+        inserts.append((s, e - s, b'', -1))
+        per_layer[layer_of(w, i)] += 1
+    before = _numbers(p)
+    extra = [count_edit(w, -n, lay) for lay, n in per_layer.items()]
+
+    def run():
+        p._insert(info, inserts, extra)
+        if _numbers(p) != before:
+            raise ValueError('window numbers moved after the delete; the project is left unchanged')
+    _guarded(p, run)
+
+
 def delete_window(p: Project, window) -> list:
     """Delete a window; its number becomes free. Returns the function keys that still lead to it."""
     pay, ws = p.payload, p.windows()
@@ -107,38 +178,73 @@ def system_window(w: dict) -> bool:
     return w['number'] < SYSTEM_WINDOWS or bool(SYSTEM_NAMES.match(w['name'] or ''))
 
 
+def hide_object(p: Project, window, index: int) -> list:
+    """Move an object out of the visible area of its window (to the right of the frame).
+
+    The first object of a kind defines the widget class of the whole project and cannot be deleted; moved out of the
+    frame it stays in the project, keeps the class numbering intact and is not drawn on the panel. EasyBuilder itself
+    leaves an object there when an engineer drags it out of the window. Returns the new frame."""
+    w, (o,) = p._objects(window, index)
+    if o['bbox'] is None or o['kind'] == 'Window':
+        raise ValueError(f'object #{index} of {w["name"]!r} has no frame to move out of the window')
+    l, t, r, b = o['bbox']
+    dx = w['width'] + 2000 - l
+    if dx <= 0:
+        return [l, t, r, b]                     # already outside the frame
+    return p.move_object(window, index, dx, 0)
+
+
 def new_project(p: Project, keep=(), start=SYSTEM_WINDOWS, start_name=None, clear_start=True) -> dict:
     """Turn a base (an old project in the house style, or a template saved by EasyBuilder) into an empty project of
     the same panel, devices, tag table, picture library and system windows: every other window goes, except `keep`
-    (names or numbers); the start window stays and loses its objects (those that are safe to delete).
-    Returns {deleted, kept, failed, start: {number, name, left: [{index, kind, why}]}}."""
+    (names or numbers); the start window stays and loses its objects — deleted, or moved out of the frame when the
+    object defines a widget class of the project and cannot be deleted.
+    Returns {deleted, kept, failed, start: {number, name, objects, hidden: [...], left: [{index, kind, why}]}}."""
     wanted = {str(k).strip().lower() for k in keep or ()}
     st = p.window(start)
     out = {'deleted': [], 'kept': [], 'failed': []}
+    doomed = []
     for w in sorted(p.windows(), key=lambda x: -x['offset']):
         if w['number'] == st['number'] or system_window(w):
             continue
         if str(w['number']) in wanted or (w['name'] or '').strip().lower() in wanted:
             out['kept'].append({'number': w['number'], 'name': w['name']})
             continue
-        try:
-            delete_window(p, w['number'])
-            out['deleted'].append({'number': w['number'], 'name': w['name']})
-        except ValueError as exc:
-            out['failed'].append({'number': w['number'], 'name': w['name'], 'why': str(exc)})
-    left = []
-    if clear_start:
-        for o in sorted(p.window(st['number'])['objects'], key=lambda x: -x['index']):
-            if o['kind'] == 'Window':
-                continue
+        doomed.append(w)
+    # one edit for all of them; a window that cannot go is then reported on its own, the rest still go
+    try:
+        delete_windows(p, [w['number'] for w in doomed])
+        out['deleted'] = [{'number': w['number'], 'name': w['name']} for w in doomed]
+    except ValueError:
+        for w in doomed:
             try:
-                delete_object(p, st['number'], o['index'])
+                delete_window(p, w['number'])
+                out['deleted'].append({'number': w['number'], 'name': w['name']})
             except ValueError as exc:
-                left.append({'index': o['index'], 'kind': o['kind'], 'why': str(exc)})
+                out['failed'].append({'number': w['number'], 'name': w['name'], 'why': str(exc)})
+    left, hidden = [], []
+    if clear_start:
+        objs = p.window(st['number'])['objects']
+        idx = [o['index'] for o in objs if o['kind'] != 'Window']
+        try:
+            delete_objects(p, st['number'], idx)
+        except ValueError:
+            # one by one: what cannot be deleted is moved out of the frame, what cannot be moved is reported
+            for i in sorted(idx, reverse=True):
+                o = p.window(st['number'])['objects'][i]
+                try:
+                    delete_object(p, st['number'], i)
+                except ValueError as exc:
+                    try:
+                        hide_object(p, st['number'], i)
+                        hidden.append({'index': i, 'kind': o['kind'], 'why': str(exc)})
+                    except ValueError as exc2:
+                        left.append({'index': i, 'kind': o['kind'], 'why': str(exc2)})
     if start_name:
         p.rename_window(st['number'], str(start_name))
     sw = p.window(st['number'])
     out['start'] = {'number': sw['number'], 'name': sw['name'], 'objects': len(sw['objects']) - 1,
+                    'hidden': sorted(hidden, key=lambda x: x['index']),
                     'left': sorted(left, key=lambda x: x['index'])}
     return out
 
