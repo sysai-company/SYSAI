@@ -50,6 +50,7 @@
       {{ nav('/agents/spend', 'coins', 'Расходы', path.startswith('/agents/spend'), 'Сколько стоили нейронки агентов и на что') }}
       {{ nav('/hub', 'box', 'Хаб', path.startswith('/hub'), 'SYSAI_Hub: навыки и инструменты, которые берут агенты') }}
       {{ nav('/files', 'folder', 'Хранилище', path.startswith('/files'), 'Общие файлы людей и агентов') }}
+      {{ nav('/pictures', 'image', 'Картинки', path.startswith('/pictures'), 'Пак картинок оборудования: механизмы, состояния, поиск') }}
       {% if boss %}{{ nav('/agents/access', 'shield', 'Доступы', path.startswith('/agents/access'), 'Что можно агентам: профили доступа') }}{% endif %}
     {% endcall %}
     {% endif %}

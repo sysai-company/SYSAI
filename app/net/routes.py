@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 from .. import config, settings_store, storage
 from ..db import Department, Employee, SessionLocal, User
-from . import access, agents, desktop, enabled, files, gateway, hub, hub_bundles, installer, journal, mcp, soul, spend, trace
+from . import access, agents, desktop, enabled, files, gateway, hub, hub_bundles, installer, journal, mcp, pictures, soul, spend, trace
 from .models import NetAgent, NetAgentToken, NetSkill
 
 router = APIRouter()
@@ -718,6 +718,40 @@ def files_page(request: Request, path: str = "", f: str = "", q: str = "", trash
                  chips=FILE_CHIPS, msg=msg, error=error, boss=me["role"] == "superuser", rights=rights,
                  panel_open=bool(item) or bool(p), selected=item["path"] if item else "", files_url=_files_url, parent=_parent,
                  max_mb=files.MAX_UPLOAD // files.MB, s3=storage.configured())
+
+
+@router.get("/pictures", response_class=HTMLResponse)
+def pictures_page(request: Request, q: str = "", state: str = "", equipment: str = "", msg: str = "", error: str = ""):
+    """Пак картинок оборудования: что в нём есть, какие у механизмов состояния, и поиск по смыслу."""
+    me = _person(request)
+    rights = files.for_person(me)
+    found = None
+    if q:
+        try:
+            found = pictures.find(rights, q, state=state, limit=24)
+        except pictures.PicturesError as exc:
+            error = error or str(exc)
+    try:
+        over = pictures.overview(rights, equipment=equipment)
+    except (pictures.PicturesError, files.FilesError) as exc:
+        over = {"folder": pictures.PACK, "pictures": 0, "sets": 0, "kinds": [], "updated": ""}
+        error = error or str(exc)
+    return _page(request, "net/pictures.html", over=over, found=found, q=q, state=state, equipment=equipment,
+                 pack=pictures.PACK, msg=msg, error=error, boss=me["role"] == "superuser")
+
+
+@router.post("/pictures/index")
+def pictures_index(request: Request):
+    """Пересобрать индекс пака: при первом подключении он строится сам, это — по требованию."""
+    me = _person(request)
+    rights = files.for_person(me)
+    try:
+        got = pictures.build(rights)
+    except (pictures.PicturesError, files.FilesError) as exc:
+        return _back("/pictures", error=str(exc))
+    st = got["stats"]
+    return _back("/pictures", msg=f"Индекс собран: картинок {st['pictures']}, наборов {st['sets']}, "
+                                  f"механизмов {st['equipment']}, без механизма {st['unrecognized']}")
 
 
 async def _spool(stream, limit: int) -> tuple[str, int]:

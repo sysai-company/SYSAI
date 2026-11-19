@@ -414,6 +414,32 @@ def refresh(folder, full: bool = False, write: bool = True) -> tuple:
     return index, stats
 
 
+def record_of(rel: str, data: bytes, mtime: float = 0) -> dict:
+    """One record of the index from the picture itself — for a caller that holds the bytes (the shared storage)."""
+    fmt, width, height = picture_info(data, rel)
+    return {"file": str(rel), "sha1": hashlib.sha1(data).hexdigest(), "bytes": len(data), "mtime": mtime,
+            "format": fmt, "width": width, "height": height}
+
+
+def index_of(records: list, labels: dict | None = None) -> dict:
+    """The index of pictures the caller has already read (the shared storage of SYSAI, not a folder on this disk).
+
+    `records` carry file, sha1, bytes, mtime, format, width, height — see record_of(). Names are derived here by the
+    same rules as for a folder, so a pack in the storage is understood exactly like a pack on the engineer's PC.
+    """
+    pictures = []
+    for r in records or []:
+        if not isinstance(r, dict) or not r.get("file"):
+            continue
+        pictures.append({"file": str(r["file"]), "sha1": str(r.get("sha1") or ""), "bytes": int(r.get("bytes") or 0),
+                         "mtime": r.get("mtime") or 0, "format": str(r.get("format") or ""),
+                         "width": r.get("width"), "height": r.get("height")})
+    labels = labels if isinstance(labels, dict) else {}
+    _finish(pictures, labels)
+    return {"version": INDEX_VERSION, "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "pictures": pictures, "labels": labels}
+
+
 def _ready(folder) -> tuple:
     """(root, index) for the reading tools: the index is rebuilt silently when it is missing or behind the folder."""
     index, stats = refresh(folder)
@@ -478,10 +504,8 @@ def _states_arg(state) -> list:
     return wanted
 
 
-def find(folder, query: str, state: str = "", limit: int = 10) -> dict:
-    """Sets by meaning, best first. Equipment match > word of the name > word of the folder or the note; a state or
-    an orientation named in the query lifts the sets that have it; `state` keeps only the sets that have them all."""
-    root, index = _ready(folder)
+def find_in(index: dict, query: str, state: str = "", limit: int = 10, where: str = "") -> dict:
+    """Sets by meaning, best first — over an index the caller already has (a folder or the shared storage)."""
     terms, soft = [], []
     for token in tokenize(str(query or "")):
         k = key(token)
@@ -529,10 +553,17 @@ def find(folder, query: str, state: str = "", limit: int = 10) -> dict:
             found.append((-matched, -score, -len(one["states"]), _set_name(one), one))
     found.sort(key=lambda x: x[:4])
     limit = max(1, min(int(limit or 10), 100))
-    result = {"dir": root, "query": query, "found": len(found), "sets": [x[4] for x in found[:limit]]}
+    result = {"dir": where, "query": query, "found": len(found), "sets": [x[4] for x in found[:limit]]}
     if not found:
         result["hint"] = "ничего не нашлось: посмотри pics_list (какое оборудование есть) или подпиши картинки pics_label_update"
     return result
+
+
+def find(folder, query: str, state: str = "", limit: int = 10) -> dict:
+    """Sets by meaning, best first. Equipment match > word of the name > word of the folder or the note; a state or
+    an orientation named in the query lifts the sets that have it; `state` keeps only the sets that have them all."""
+    root, index = _ready(folder)
+    return find_in(index, query, state, limit, where=root)
 
 
 def overview(folder, equipment: str = "") -> dict:

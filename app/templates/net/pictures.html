@@ -1,0 +1,67 @@
+{% extends "base.html" %}{% block title %}Картинки оборудования — SYSAI{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset('net.css') }}">{% endblock %}
+{% block body %}
+<div class="page-h"><div><h1>Картинки оборудования</h1>
+  <p>Пак картинок для экранов панели: что где лежит, что это за механизм (нория, муз, шнек, триер…) и какие у него
+     состояния. Агент сначала ищет картинку здесь и только потом рисует свою.</p></div>
+  <div class="actions">
+    <form method="post" action="/pictures/index"><button class="btn primary">Пересобрать индекс</button></form>
+    <a class="btn" href="/files?path={{ pack }}">Открыть пак в хранилище</a>
+  </div></div>
+{% if msg %}<div class="card note" role="status">{{ msg }}</div>{% endif %}
+{% if error %}<div class="card note warn" role="alert">{{ error }}</div>{% endif %}
+
+<div class="card note">Пак: <b>{{ pack }}</b>. Индекс строится сам при первом подключении и лежит рядом с паком
+  (<code>_index.json</code>). Состояния берутся из имени файла и из имени папки: <code>off</code>/<code>on</code>/<code>alarm</code>,
+  «работа»/«авария», цвета (зелёный/красный/серый). Сколько состояний у механизма — столько, сколько картинок есть на самом деле.</div>
+
+<section class="card"><h2>Что в паке</h2>
+  {% if not over.kinds %}<p class="muted">Пак пуст или ещё не проиндексирован. Загрузите картинки в
+    <a href="/files?path={{ pack }}">{{ pack }}</a> и нажмите «Пересобрать индекс».</p>
+  {% else %}
+  <p class="small muted">Картинок {{ over.pictures }} · наборов {{ over.sets }}{% if over.updated %} · индекс от {{ over.updated }}{% endif %}</p>
+  <div class="table-wrap"><table class="list">
+    <thead><tr><th>Механизм</th><th>Наборов</th><th>Картинок</th><th>Состояния</th></tr></thead>
+    <tbody>
+    {% for k in over.kinds %}
+    <tr>
+      <td><a href="/pictures?equipment={{ k.equipment }}"><b>{{ k.equipment or '— без механизма —' }}</b></a></td>
+      <td>{{ k.sets }}</td>
+      <td>{{ k.pictures }}</td>
+      <td>{% for s in k.states %}<span class="pill">{{ s }}</span> {% endfor %}</td>
+    </tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% endif %}
+</section>
+
+<section class="card"><h2>Найти картинку</h2>
+  <form method="get" action="/pictures" class="ag-toolbar">
+    <input class="inp" type="search" name="q" value="{{ q }}" placeholder="нория авария, шнек, муз…" aria-label="Поиск по смыслу">
+    <select class="inp" name="state" aria-label="Состояние">
+      <option value="">любое состояние</option>
+      {% for s in ['off', 'on', 'alarm', 'warning', 'manual', 'open', 'closed'] %}
+      <option value="{{ s }}" {% if state == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn primary">Найти</button>
+  </form>
+  {% if found %}
+    {% if not found.sets %}<p class="muted">{{ found.hint or 'Ничего не нашлось.' }}</p>{% else %}
+    <p class="small muted">Найдено наборов: {{ found.found }}</p>
+    <div class="table-wrap"><table class="list">
+      <thead><tr><th>Механизм</th><th>Набор</th><th>Состояния</th><th>Файлы</th></tr></thead>
+      <tbody>
+      {% for s in found.sets %}
+      <tr>
+        <td>{{ s.equipment or '—' }}</td>
+        <td><b>{{ s.base }}</b>{% if s.folder %}<div class="small muted">{{ s.folder }}</div>{% endif %}</td>
+        <td>{% for name, path in s.states.items() %}<span class="pill" title="{{ path }}">{{ name }}</span> {% endfor %}</td>
+        <td class="small">{{ s.files|length }}</td>
+      </tr>
+      {% endfor %}
+      </tbody></table></div>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}
