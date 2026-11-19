@@ -141,7 +141,7 @@ def test_the_formats_separate_the_plc_from_the_panel():
     assert {k for k, f in fmts.items() if f["kind"] == "plc"} == {"me", "hawell"}
     assert {k for k, f in fmts.items() if f["kind"] == "hmi"} == {"oni", "easybuilder"}
     assert fmts["me"]["read"] and fmts["me"]["write"] and fmts["me"]["icon"].endswith("format-me.svg")
-    assert fmts["oni"]["read"] is True and fmts["oni"]["write"] is False   # экраны читаем, писать ещё нет
+    assert fmts["oni"]["read"] is True and fmts["oni"]["write"] is True    # окно перезаписывается без потерь
     assert fmts["hawell"]["read"] is False and fmts["hawell"]["write"] is False
     assert "LD и ST" in fmts["me"]["note"] and "только LD" in fmts["hawell"]["note"]
 
@@ -157,9 +157,19 @@ def test_a_panel_format_offers_the_screen_resolutions():
     assert "resolutions" not in _server([("plc_formats", {"kind": "plc"})])[0]["structuredContent"]["formats"][0]
 
 
-def test_a_format_we_cannot_write_writes_nothing_and_says_why(tmp_path):
+def test_a_panel_format_is_not_a_plc_program(tmp_path):
+    """ONI — экраны, а не программа ПЛК: plc_export отказывает и говорит, куда идти, а файла не пишет."""
     out = tmp_path / "x.oni"
     got = _server([("plc_export", {"format": "oni", "src_dir": str(tmp_path), "out_file": str(out)})])[0]
     assert got.get("isError") is True
-    assert "ещё не разобран" in got["content"][0]["text"] or "не разобран" in got["content"][0]["text"]
+    text = got["content"][0]["text"]
+    assert "экраны панели, а не программа ПЛК" in text and "oni_new_project" in text
+    assert not out.exists()
+
+
+def test_a_format_we_cannot_write_writes_nothing_and_says_why(tmp_path):
+    out = tmp_path / "x.gpc"
+    got = _server([("plc_export", {"format": "hawell", "src_dir": str(tmp_path), "out_file": str(out)})])[0]
+    assert got.get("isError") is True
+    assert "не разобран" in got["content"][0]["text"]
     assert not out.exists()

@@ -2,10 +2,10 @@
 name: plc-kit
 kind: mcp
 description: Читает, проверяет и собирает программу ПЛК Schneider Machine Expert / CODESYS на языке ST без Machine Expert — в том числе сам файл .project (читает любой и пишет настоящий из папки ST и шаблона), программы, блоки, переменные, адреса Modbus, каналы ввода-вывода, теги для панели (Modbus и OPC UA), стиль проекта, PLCopen XML; читает экраны панели ONI Visual Studio (Flexem Studio) — окна, объекты, адреса ПЛК, разрешение панели; решает связь панели и контроллера по моделям из ТЗ и ведёт этапы проекта «под ключ».
-version: 1.9.0
+version: 1.10.0
 run: python server.py
 platform: any
-tools: plc_info, plc_pous, plc_pou, plc_variables, plc_addresses, plc_hmi_tags, plc_tag_check, plc_check, plc_style, plc_style_save, plc_style_list, plc_style_show, plc_link, plc_stage_update, plc_spec_new, plc_spec_check, plc_generate, plc_export_st, plc_build, plc_formats, oni_windows, oni_objects, oni_addresses, oni_check, oni_panel, plc_export, plc_project_build, plc_project_template, plc_io, plc_io_map
+tools: plc_info, plc_pous, plc_pou, plc_variables, plc_addresses, plc_hmi_tags, plc_tag_check, plc_check, plc_style, plc_style_save, plc_style_list, plc_style_show, plc_link, plc_stage_update, plc_spec_new, plc_spec_check, plc_generate, plc_export_st, plc_build, plc_formats, oni_windows, oni_objects, oni_addresses, oni_check, oni_new_project, oni_write_window, oni_panel, plc_export, plc_project_build, plc_project_template, plc_io, plc_io_map
 requires: python>=3.11
 ---
 # ПЛК: Machine Expert / CODESYS, язык ST
@@ -288,6 +288,8 @@ HMI/System/GlobalConfigInfo.cfg  стартовое окно
 | `oni_addresses` | какие адреса читают экраны, сколько объектов и на каких окнах |
 | `oni_check` | что не так, по строке на окно |
 | `oni_panel` | под какое разрешение нарисованы экраны и из чего выбирать |
+| `oni_new_project` | новый проект экранов под выбранное разрешение |
+| `oni_write_window` | записать окно обратно и прочитать снова — что получилось |
 
 **У окон нет своих имён** (`GraphicsName` пустая): программа ссылается на них по GUID. Имя окна здесь — первый
 текст на нём, личность — GUID. Поэтому в `oni_objects` можно передать GUID, имя файла или это имя.
@@ -300,6 +302,21 @@ HMI/System/GlobalConfigInfo.cfg  стартовое окно
 `oni_check` сообщает по строке на окно, а не на объект: объект целиком за окном (ошибка), объект выходит за
 край больше чем на 20 точек, клавиша или число ни к чему не привязаны, в проекте не описан ПЛК. Объект,
 свисающий за край на пару точек, — норма для рисунка и не сообщается.
+
+### Запись: что проверено, а что нет
+
+`oni_write_window` пишет окно обратно и **читает его снова** — в ответе не «задумано», а что получилось
+(`same`: совпало ли разобранное окно). Байт-в-байт не совпадёт: ElementTree поднимает объявления неймспейсов
+к корню и пишет `<X />` вместо `<X/>`. Для ONI это одно и то же (это XmlSerializer .NET), поэтому сверяется
+разобранное окно: объекты, типы, координаты, адреса.
+
+**Проверено на всех 45 окнах Достоево: расхождений 0.** Одна тонкость, которую пришлось закрыть: `\r\n` в
+подписи. XML-парсер по спецификации превращает сырой `\r\n` в `\n`, поэтому `\r` экранируется в `&#13;` —
+иначе перевод строки в подписи терялся бы при каждой перезаписи (8 окон из 45 расходились именно на этом).
+
+`oni_new_project` собирает проект по образцу Достоево: `<имя>.fsprj`, окно нужного размера, описание ПЛК,
+стартовое окно. **Чего не гарантирует: что ONI Visual Studio откроет файл без замечаний** — программы здесь
+нет, проверить нечем. Поэтому в `plc_formats` у ONI так и написано.
 
 ## Папка ST — как пишут проект с нуля
 

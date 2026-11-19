@@ -211,11 +211,12 @@ class Obj:
 
 
 class Window:
-    __slots__ = ("id", "file", "folder", "objects", "width", "height", "name", "own_name")
+    __slots__ = ("id", "file", "folder", "objects", "width", "height", "name", "own_name", "root")
 
     def __init__(self, path: Path, root):
         self.file = str(path)
         self.folder = path.parent.name
+        self.root = root
         self.id = _text(root, "UniqueId") or path.stem
         self.own_name = _text(root, "Name")
         self.objects = [Obj(e) for e in root.iter(NS + "GraphicsBase")]
@@ -369,6 +370,112 @@ class Project:
                 "addresses": len(self.addresses()), "devices": self.devices,
                 "summary": {k: sum(1 for i in issues if i["level"] == k) for k in order},
                 "issues": issues[:2000]}
+
+
+NS_URI = "http://schemas.flexem.com/fs/model/1"
+XSI_URI = "http://www.w3.org/2001/XMLSchema-instance"
+
+
+def _serialize(root) -> bytes:
+    """Окно в XML так, как его пишет ONI: без объявления, с префиксом `i` у xsi:type.
+
+    `\r` экранируется в `&#13;` руками: ElementTree его не трогает, а XML-парсер по спецификации превращает
+    сырой `\r\n` в `\n` — и перевод строки в подписи терялся бы при каждой перезаписи.
+    """
+    ET.register_namespace("", NS_URI)
+    ET.register_namespace("i", XSI_URI)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=False).replace(b"\r", b"&#13;")
+
+
+def write_window(window, path=None) -> dict:
+    """Записать окно обратно и прочитать его снова — что получилось, а не что задумано.
+
+    Байт-в-байт не совпадёт: ElementTree поднимает объявления неймспейсов к корню и пишет `<X />` вместо `<X/>`.
+    Для ONI это одно и то же (это XmlSerializer .NET), поэтому сверяется не текст, а разобранное окно: объекты,
+    их типы, координаты и адреса.
+    """
+    target = Path(str(path or window.file))
+    data = _serialize(window.root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    back = Window(target, ET.parse(target).getroot())
+    before = [o.as_dict() for o in window.objects]
+    after = [o.as_dict() for o in back.objects]
+    return {"file": str(target), "bytes": len(data), "objects": len(back.objects),
+            "same": before == after, "width": back.width, "height": back.height}
+
+
+def _el(parent, tag, text=None, **attrs):
+    e = ET.SubElement(parent, NS + tag, {k: str(v) for k, v in attrs.items()})
+    if text is not None:
+        e.text = str(text)
+    return e
+
+
+def new_project(path, name: str, resolution: str = "1024x768", device: str = "Modbus_TCP",
+                title: str = "") -> dict:
+    """Новый проект экранов под выбранное разрешение.
+
+    Панели разные, и экран под 1024×768 на 800×480 не влезает — поэтому разрешение приходит сюда, а не берётся
+    из константы. Создаётся папка проекта: `<имя>.fsprj`, одно окно нужного размера, описание ПЛК и стартовое
+    окно. Структура снята с настоящего проекта Достоево.
+
+    Чего это не гарантирует: что ONI Visual Studio откроет файл без замечаний — программы здесь нет, проверить
+    нечем. Поэтому `plc_formats` честно говорит `write: false` для ONI, пока это не проверено на панели.
+    """
+    key = str(resolution or "").strip().lower().replace("х", "x").replace("×", "x")
+    if "x" not in key:
+        raise OniError(f"разрешение «{resolution}» не понято: нужно вида 1024x768")
+    try:
+        one = resolution_of(*[int(x) for x in key.split("x", 1)])
+    except ValueError:
+        raise OniError(f"разрешение «{resolution}» не понято: нужно вида 1024x768") from None
+    root = Path(str(path))
+    if (root / f"{name}.fsprj").exists():
+        raise OniError(f"проект уже есть: {root / (name + '.fsprj')}")
+    (root / "HMI" / "Frame" / "Basic").mkdir(parents=True, exist_ok=True)
+    (root / "HMI" / "System").mkdir(parents=True, exist_ok=True)
+
+    fsprj = ET.Element(NS + "Project")
+    _el(fsprj, "Version", "1.0")
+    _el(fsprj, "SoftwareVersion", "2.8.11916.0")
+    (root / f"{name}.fsprj").write_bytes(_serialize(fsprj))
+
+    win = ET.Element(NS + "HMIWindowInfo")
+    _el(win, "UniqueId", "win-main")
+    _el(win, "Name", "Basic Window")
+    _el(win, "Width", one["w"])
+    _el(win, "Height", one["h"])
+    _el(win, "GraphicsName")
+    if title:
+        obj = ET.SubElement(win, NS + "GraphicsBase", {"{%s}type" % XSI_URI: "StaticTextInfo"})
+        _el(obj, "GraphicsName", "Static Text")
+        _el(obj, "UniqueId", "t-title")
+        _el(obj, "ZIndex", 0)
+        info = _el(obj, "NormalInfo")
+        pos = _el(info, "Position")
+        for k, v in (("X", 20), ("Y", 16), ("Width", min(600, one["w"] - 40)), ("Height", 32)):
+            _el(pos, k, v)
+        texts = _el(info, "StaticTextContentInfos")
+        content = _el(texts, "StaticTextContentInfo")
+        _el(content, "LabelContent", title)
+    (root / "HMI" / "Frame" / "Basic" / "win-main.wcfg").write_bytes(_serialize(win))
+
+    conn = ET.Element(NS + "ConnectInfo")
+    plc = _el(conn, "InternetPLCInfo")
+    _el(plc, "DeviceAlias", "Device1")
+    _el(plc, "PLCName", device)
+    _el(plc, "PLCID", "400")
+    _el(plc, "DefaultStation", "1")
+    (root / "HMI" / "System" / "ConnectInfo.cfg").write_bytes(_serialize(conn))
+
+    glob = ET.Element(NS + "GlobalConfigInfo")
+    _el(glob, "InitWindow", "win-main")
+    (root / "HMI" / "System" / "GlobalConfigInfo.cfg").write_bytes(_serialize(glob))
+
+    made = Project(root)
+    return {"project": str(root), "name": name, "panel": made.panel(),
+            "windows": [w.as_dict() for w in made.windows], "devices": made.devices}
 
 
 def load(path) -> Project:

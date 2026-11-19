@@ -179,6 +179,47 @@ def test_check_names_the_window_and_counts_the_objects(oni):
     assert "ни к чему не привязаны" in warnings
 
 
+def test_a_new_project_is_created_at_the_chosen_resolution(tmp_path):
+    """Разрешение — выбор инженера: проект под 800×480 получает окно 800×480, а не 1024×768 из константы."""
+    got = oniproj.new_project(tmp_path / "Line", "Line", "800x480", title="Линия приёмки")
+    assert got["panel"]["id"] == "800x480" and got["panel"]["w"] == 800
+    assert got["devices"] == [{"name": "Device1", "plc": "Modbus_TCP", "id": "400", "station": "1"}]
+    assert (tmp_path / "Line" / "Line.fsprj").is_file()
+    back = oniproj.load(tmp_path / "Line")
+    assert len(back.windows) == 1 and (back.windows[0].width, back.windows[0].height) == (800, 480)
+    assert back.windows[0].name == "Линия приёмки"
+    assert back.init_window == "win-main"
+    with pytest.raises(oniproj.OniError, match="уже есть"):
+        oniproj.new_project(tmp_path / "Line", "Line", "800x480")
+    with pytest.raises(oniproj.OniError, match="не понято"):
+        oniproj.new_project(tmp_path / "X", "X", "большой")
+
+
+def test_a_window_is_written_back_without_losing_anything(oni):
+    """Перезапись окна: разобранное окно до и после совпадает — объекты, типы, координаты, адреса."""
+    p = oniproj.load(oni)
+    w = p.window("Нория 1")
+    before = [o.as_dict() for o in w.objects]
+    got = oniproj.write_window(w)
+    assert got["same"] is True and got["objects"] == len(before)
+    assert (got["width"], got["height"]) == (1024, 768)
+    back = oniproj.load(oni).window("Нория 1")
+    assert [o.as_dict() for o in back.objects] == before
+
+
+def test_a_carriage_return_survives_a_rewrite(tmp_path):
+    """`\r\n` в подписи не превращается в `\n`: XML-парсер нормализует сырой CR, поэтому он экранируется."""
+    root = tmp_path / "P"
+    (root / "HMI" / "Frame" / "Basic").mkdir(parents=True)
+    (root / "P.fsprj").write_text(f'<Project xmlns="{NS}"><Version>1</Version></Project>', encoding="utf-8")
+    win = _window("w1", "Basic Window", 800, 480, _text("t1", "Перевести в &#13;&#10;ручной режим", 10, 10, 200, 30))
+    (root / "HMI" / "Frame" / "Basic" / "w1.wcfg").write_text(win, encoding="utf-8")
+    p = oniproj.load(root)
+    assert p.windows[0].objects[0].label == "Перевести в \r\nручной режим"
+    assert oniproj.write_window(p.windows[0])["same"] is True
+    assert oniproj.load(root).windows[0].objects[0].label == "Перевести в \r\nручной режим"
+
+
 def test_a_folder_that_is_not_an_oni_project_says_so(tmp_path):
     """Не проект ONI — понятная ошибка, а не пустой список окон."""
     with pytest.raises(oniproj.OniError, match="нет проекта ONI"):
@@ -200,6 +241,8 @@ for name, args in [("oni_windows", {{"path": {str(oni)!r}}}),
                    ("oni_addresses", {{"path": {str(oni)!r}}}),
                    ("oni_check", {{"path": {str(oni)!r}}}),
                    ("oni_panel", {{"path": {str(oni)!r}}}),
+                   ("oni_write_window", {{"path": {str(oni)!r}, "window": "Нория 1"}}),
+                   ("oni_new_project", {{"path": {str(oni / "new")!r}, "name": "New", "resolution": "1280x800"}}),
                    ("oni_windows", {{"path": {str(oni / "nope")!r}}})]:
     r = server._call(name, args)
     out.append({{"name": name, "text": r["content"][0]["text"], "error": bool(r.get("isError"))}})
@@ -208,10 +251,12 @@ print(json.dumps(out, ensure_ascii=False))
     res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert res.returncode == 0, res.stderr
     out = json.loads(res.stdout)
-    assert [o["error"] for o in out] == [False] * 5 + [True]
+    assert [o["error"] for o in out] == [False] * 7 + [True]
     assert json.loads(out[0]["text"])["windows"][0]["id"] == "win-main"
     assert json.loads(out[1]["text"])["window"]["name"] == "Нория 1"
     assert len(json.loads(out[2]["text"])["addresses"]) == 4
     assert json.loads(out[3]["text"])["summary"]["error"] == 1
     assert json.loads(out[4]["text"])["panel"]["id"] == "1024x768"
-    assert "нет такой папки" in out[5]["text"]
+    assert json.loads(out[5]["text"])["same"] is True
+    assert json.loads(out[6]["text"])["panel"]["id"] == "1280x800"
+    assert "нет такой папки" in out[7]["text"]
