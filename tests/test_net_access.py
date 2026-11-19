@@ -198,6 +198,11 @@ def test_the_character_of_the_agents_soul(client, net_agent):
         assert "available_sources" in soul_text and "tool_describe" in soul_text and "tool_call" in soul_text
         assert "пустому поиску" in soul_text and "явную ошибку соединения/транспорта" in soul_text
         assert "mcp__plc_kit__plc_stage_update" in soul_text
+        # the stage bar and the line with a real controller stay too: a saved text cannot forbid the tools SYSAI gives
+        assert "## Ход работы и статусы" in soul_text and 'state: "work"' in soul_text and 'state: "done"' in soul_text
+        assert "## Контроллер и симуляция" in soul_text and "simulation: true" in soul_text
+        assert "«Сеть контроллеров»" in soul_text and "явного «да»" in soul_text
+    assert "Не подключаешься к реальным контроллерам" not in text
     assert after["rev"] != doc["rev"] and soul.texts()["common"] == "Отвечай коротко."
     page = client.get(f"/agents/{net_agent['id']}").text
     assert "SOUL.md" in page and "Отвечай коротко." in page
