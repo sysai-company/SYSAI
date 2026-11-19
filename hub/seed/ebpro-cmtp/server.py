@@ -278,18 +278,19 @@ INSTRUCTIONS = ("Инструменты для проектов EasyBuilder Pro 
                 "cmtp_check. Доступы к папкам даёт SYSAI.")
 
 
-_CACHE = {}   # path -> (mtime_ns, size, Project): reading tools on an unchanged file do not decrypt it again
+_CACHE = {}   # path -> ((mtime_ns, size, inode), Project): an atomic replace (undo) keeps mtime and size but not the inode
 
 
 def _load(path):
     st = os.stat(path)
     key = os.path.abspath(path)
+    stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
     got = _CACHE.get(key)
-    if got and got[0] == st.st_mtime_ns and got[1] == st.st_size:
-        return got[2]
+    if got and got[0] == stamp:
+        return got[1]
     p = Project.load(path)
     _CACHE.clear()
-    _CACHE[key] = (st.st_mtime_ns, st.st_size, p)
+    _CACHE[key] = (stamp, p)
     return p
 
 

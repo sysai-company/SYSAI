@@ -232,7 +232,7 @@ def test_hub_skills_come_read_only_and_leave_with_the_hub(client, pc):
     folder = pc["home"] / "hub" / "opo-intake"
     assert (folder / "SKILL.md").read_text(encoding="utf-8") == SKILL and (folder / "references" / "list.md").exists()
     if os.name != "nt":
-        assert not os.access(folder / "SKILL.md", os.W_OK)
+        assert not (folder / "SKILL.md").stat().st_mode & 0o222
     with SessionLocal() as s:
         state = s.get(NetAgent, pc["agent_id"]).hub_state
         assert state["skills"] == {"opo-intake": "1.0.0"} and state["conflicts"] == ["opo-intake"]
