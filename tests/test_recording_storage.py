@@ -71,6 +71,14 @@ class FakeS3:
         return [call[0] for call in self.calls]
 
 
+@pytest.fixture(autouse=True)
+def no_storage_of_the_machine(monkeypatch):
+    """app.config reads S3_* once at import: a machine (or CI) with its own bucket must not leak into these tests."""
+    for name in ("S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
+        monkeypatch.setattr(config, name, "")
+    monkeypatch.setattr(config, "S3_REGION", "auto")
+
+
 def connect(monkeypatch, endpoint=ENDPOINT):
     for name, value in (("S3_ENDPOINT", endpoint), ("S3_BUCKET", BUCKET), ("S3_ACCESS_KEY_ID", "AKID123"),
                         ("S3_SECRET_ACCESS_KEY", "SECRET/abc+xyz"), ("S3_REGION", "auto")):
