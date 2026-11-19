@@ -37,10 +37,10 @@ let composer;
 let pane;
 
 const SUGGEST = [
-  ['spark', 'Что ты умеешь и какие инструменты тебе доступны?'],
-  ['cube', 'Сделай проект ПЛК с нуля — прикреплю ТЗ и схемы'],
-  ['canvas', 'Открой проект EasyBuilder на холсте и проверь экраны'],
-  ['search', 'Разбери готовый проект прошлых лет: программу и экраны'],
+  ['spark', 'Что ты умеешь', 'Инструменты, доступы и с чем я работаю', 'Что ты умеешь и какие инструменты тебе доступны?'],
+  ['cube', 'Проект ПЛК с нуля', 'ТЗ и схемы → программа, теги, экраны', 'Сделай проект ПЛК с нуля — прикреплю ТЗ и схемы'],
+  ['canvas', 'Экраны EasyBuilder', 'Открыть проект на холсте и проверить', 'Открой проект EasyBuilder на холсте и проверь экраны'],
+  ['search', 'Разбор готового проекта', 'Программа и экраны прошлых лет', 'Разбери готовый проект прошлых лет: программу и экраны'],
 ]
 
 // ---------------------------------------------------------------------------------------------- conversations
@@ -712,10 +712,17 @@ function bootScreen() {
 
 function emptyState() {
   const name = firstName(S.info.person);
-  return h('div', { class: 'empty' }, h('span', { class: 'tile' }, h('i'), h('i'), h('i')),
+  const who = [S.info.agent, S.info.person].filter(Boolean).join(' · ');
+  return h('div', { class: 'empty' },
+    h('div', { class: 'hero-glow', 'aria-hidden': 'true' }),
+    h('span', { class: 'tile hero-tile' }, h('i'), h('i'), h('i')),
     h('h1', {}, 'Агент ', h('span', { class: 's', text: 'SYS' }), h('span', { class: 'a', text: 'AI' })),
-    h('p', { text: `${name ? `${name}, чем` : 'Чем'} помочь? Работаю на этом компьютере: файлы, программы, Хранилище SYSAI.` }),
-    h('div', { class: 'suggest' }, SUGGEST.map(([ico, text]) => h('button', { onclick: () => composer.fill(text) }, icon(ico, 'sm'), h('span', { text })))));
+    h('p', { class: 'hero-lead', text: `${name ? `${name}, чем` : 'Чем'} помочь? Работаю на этом компьютере: файлы, программы, Хранилище SYSAI.` }),
+    who ? h('div', { class: 'hero-who' }, h('span', { class: 'dot ready' }), h('span', { text: who })) : null,
+    h('div', { class: 'suggest' }, SUGGEST.map(([ico, title, sub, prompt]) =>
+      h('button', { class: 'sug', onclick: () => composer.fill(prompt) },
+        h('span', { class: 'sug-ico' }, icon(ico, 'sm')),
+        h('span', { class: 'sug-txt' }, h('b', { text: title }), h('small', { text: sub }))))));
 }
 
 function drawThread(error = '') {
