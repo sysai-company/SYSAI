@@ -4,46 +4,9 @@
 import { h, icon, clear, basename } from './dom.js';
 import { render as renderMd } from './md.js';
 
-const TOOL_RU = {
-  terminal: 'Команда', execute_code: 'Код', read_file: 'Читает', write_file: 'Записывает', patch: 'Правит',
-  search_files: 'Ищет', web_search: 'Ищет в интернете', web_extract: 'Читает страницу', vision_analyze: 'Смотрит картинку',
-  delegate_task: 'Поручает помощникам', memory: 'Память', todo: 'План', skill_view: 'Навык', skills_list: 'Навыки',
-  skill_manage: 'Навык', session_search: 'Прошлые разговоры', clarify: 'Вопрос', process: 'Процесс',
-  process_manage: 'Процесс', computer_use: 'Управляет ПК', cronjob: 'Расписание', text_to_speech: 'Озвучивает',
-  image_generate: 'Рисует', send_message: 'Сообщение', mixture_of_agents: 'Совет моделей',
-};
-const NAME_ICON = { terminal: 'terminal', execute_code: 'code', read_file: 'eye', write_file: 'pencil', patch: 'pencil',
-  search_files: 'search', web_search: 'globe', web_extract: 'globe', vision_analyze: 'image', delegate_task: 'users',
-  memory: 'memory', todo: 'list', skill_view: 'book', skills_list: 'book', skill_manage: 'book', session_search: 'clock',
-  clarify: 'help', computer_use: 'monitor', cronjob: 'clock' };
-const KIND_ICON = { read: 'eye', edit: 'pencil', delete: 'trash', move: 'folder', search: 'search', execute: 'terminal',
-  think: 'spark', fetch: 'globe', switch_mode: 'sliders', other: 'spark' };
-const WINDOW_TOOL = { show_file: 'Показывает файл', open_file: 'Открывает в программе', show_in_folder: 'Показывает в папке' };
+import { describeTool, answeredError } from './toolname.mjs';
 
-export function describeTool(data) {
-  const title = String(data.title || '').trim();
-  const m = /^([A-Za-z_][\w.-]*):\s*([\s\S]*)$/.exec(title);
-  let name = m ? m[1] : (/^[A-Za-z_][\w.-]*$/.test(title) ? title : '');
-  let detail = m ? m[2] : (name ? '' : title);
-  let label = TOOL_RU[name] || '';
-  let ico = NAME_ICON[name] || KIND_ICON[data.kind] || 'spark';
-  if (!label && name.startsWith('browser_')) { label = 'Браузер'; ico = 'globe'; detail = detail || name.slice(8); }
-  if (!label && name.startsWith('mcp_')) {
-    const rest = name.slice(4);
-    if (rest.startsWith('window_')) {
-      const tool = rest.slice(7);
-      label = WINDOW_TOOL[tool] || 'Окно'; ico = 'monitor';
-    } else if (rest.startsWith('sysai_')) {
-      label = 'SYSAI'; ico = 'cloud'; detail = [rest.slice(6), detail].filter(Boolean).join(' · ');
-    } else {
-      const [server, ...tool] = rest.split('_');
-      label = server; ico = 'cube'; detail = [tool.join('_'), detail].filter(Boolean).join(' · ');
-    }
-  }
-  if (!label) label = name || (data.kind === 'think' ? 'Думает' : 'Действие');
-  if (!detail && data.locations && data.locations.length) detail = data.locations.map((l) => l.path).join(', ');
-  return { name, label, detail: detail.replace(/\s+/g, ' ').trim(), icon: ico };
-}
+export { describeTool, answeredError };
 
 function textOf(content) {
   if (!content) return '';
@@ -544,10 +507,3 @@ function pathOf(uri) {
   return p;
 }
 
-export function answeredError(d) {
-  const texts = [];
-  for (const c of (d && d.content) || []) if (c && c.type === 'content') texts.push(textOf(c.content) || '');
-  if (d && typeof d.rawOutput === 'string') texts.push(d.rawOutput);
-  else if (d && d.rawOutput && typeof d.rawOutput === 'object') texts.push(String(d.rawOutput.result || ''));
-  return texts.some((x) => /^[\s{"]*(result"\s*:\s*")?ОШИБКА \(/.test(String(x).slice(0, 200)));
-}

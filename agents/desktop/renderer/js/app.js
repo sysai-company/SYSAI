@@ -37,11 +37,11 @@ let composer;
 let pane;
 
 const SUGGEST = [
-  ['spark', 'Что ты умеешь на этом компьютере?'],
-  ['folder', 'Разбери папку «Загрузки»: что там и что можно удалить?'],
-  ['sheet', 'Сделай короткую сводку по таблице — я прикреплю файл'],
-  ['cloud', 'Что есть для меня в Хранилище SYSAI?'],
-];
+  ['spark', 'Что ты умеешь и какие инструменты тебе доступны?'],
+  ['cube', 'Сделай проект ПЛК с нуля — прикреплю ТЗ и схемы'],
+  ['canvas', 'Открой проект EasyBuilder на холсте и проверь экраны'],
+  ['search', 'Разбери готовый проект прошлых лет: программу и экраны'],
+]
 
 // ---------------------------------------------------------------------------------------------- conversations
 function current() {
@@ -682,11 +682,13 @@ function drawTop() {
   const project = conv && projectOf(conv.cwd || (s && s.cwd));
   $('top-title').textContent = conv ? `${project ? `${project.name} · ` : ''}${conv.title || (s && s.title) || (conv.draft ? 'Новый разговор' : 'Разговор')}` : '';
   const acts = $('top-actions');
-  acts.replaceChildren(
+  // a native replaceChildren writes null as the text «null»: only real nodes go in
+  acts.replaceChildren(...[
     conv && !conv.empty ? h('button', { class: 'icon-btn', title: project ? `Сохранить разговор в проект «${project.name}» (_work/notes)`
       : 'Сохранить разговор файлом (Документы → SYSAI Разговоры)', onclick: () => exportConv() }, icon('download')) : null,
     h('button', { class: `icon-btn${pane && pane.opened ? ' on' : ''}`, title: 'Файлы и просмотр (Ctrl+B)',
-      onclick: () => pane.toggle() }, icon('panel')));
+      onclick: () => pane.toggle() }, icon('panel')),
+  ].filter(Boolean));
 }
 
 function bootScreen() {

@@ -1198,3 +1198,25 @@ test('a conversation is saved as a Markdown file and a project remembers its con
   assert.equal(await pj.noteDialog(made.name, {}), null);
   assert.ok(!info.materials.length && !info.other.some((f) => f.rel.includes('dialogs')));
 });
+
+test('rows of actions: MCP tools of Hermes (mcp__server__tool, the older mcp_server_tool, through tool_call) by name', async () => {
+  const { describeTool, splitMcp, answeredError } = await import('../renderer/js/toolname.mjs');
+  assert.deepEqual(splitMcp('mcp__plc_kit__plc_stage_update'), { server: 'plc-kit', tool: 'plc_stage_update' });
+  assert.deepEqual(splitMcp('mcp_machine_expert_me_build'), { server: 'machine-expert', tool: 'me_build' });
+  assert.deepEqual(splitMcp('mcp_window_show_file'), { server: 'window', tool: 'show_file' });
+  assert.equal(splitMcp('terminal'), null);
+  const stage = describeTool({ title: 'mcp__plc_kit__plc_stage_update: D:/p',
+    rawInput: { project_dir: 'D:/p', stage: 'hmi', state: 'done', note: 'экраны собраны' } });
+  assert.equal(stage.label, 'ПЛК');
+  assert.equal(stage.detail, 'этап «экраны» → готово · экраны собраны');
+  const viaSearch = describeTool({ title: 'tool_call: mcp__ebpro_cmtp__cmtp_render',
+    rawInput: { name: 'mcp__ebpro_cmtp__cmtp_render', arguments: { window: 10 } } });
+  assert.equal(viaSearch.label, 'EasyBuilder');
+  assert.equal(viaSearch.server, 'ebpro-cmtp');
+  assert.equal(describeTool({ title: 'mcp__window__canvas_open: Line.cmtp' }).label, 'Открывает на холсте');
+  assert.equal(describeTool({ title: 'mcp__sysai__whoami' }).label, 'SYSAI');
+  assert.equal(describeTool({ title: 'mcp__my_server__go' }).label, 'my-server');
+  assert.equal(describeTool({ title: 'terminal: dir' }).label, 'Команда');
+  assert.ok(answeredError({ content: [{ type: 'content', content: { type: 'text', text: 'ОШИБКА (plc-kit/plc_generate): нет файла' } }] }));
+  assert.ok(!answeredError({ content: [{ type: 'content', content: { type: 'text', text: 'готово' } }] }));
+});
