@@ -1,6 +1,8 @@
 """A window of an EasyBuilder Pro project drawn as a PNG, the way the panel shows it as far as the project tells:
-background, shapes, the pictures of the first state, labels in the project's fonts (TrueType fonts of the
-system), EasyBuilder's own library shapes as plain buttons, fields and lamps. Pure Python, no packages."""
+background, shapes, the pictures of the first state (PNG, BMP and baseline JPEG), labels in the project's fonts
+(TrueType fonts of the system), EasyBuilder's own library shapes as plain buttons, fields and lamps. Pure Python,
+no packages."""
+import math
 import struct
 import zlib
 
@@ -255,8 +257,272 @@ def decode_bmp(data: bytes, transparent=None):
     return w, abs(h), bytes(out)
 
 
+# -- JPEG: the pictures of a mnemonic are often JPEG, and a grey box is not the mnemonic ---------------------------
+_ZIGZAG = (0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
+           12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
+           35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+           58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63)
+_COS = tuple(tuple((0.35355339059327373 if u == 0 else 0.5) * math.cos((2 * x + 1) * u * math.pi / 16)
+                   for x in range(8)) for u in range(8))
+
+
+def _huff_table(counts, syms):
+    """(length, code) → symbol, the canonical code of a DHT segment."""
+    codes, code, k = {}, 0, 0
+    for length in range(1, 17):
+        for _ in range(counts[length - 1]):
+            codes[(length, code)] = syms[k]
+            k += 1
+            code += 1
+        code <<= 1
+    return codes
+
+
+class _Bits:
+    """The entropy-coded stream: 0xFF00 is a stuffed 0xFF, a restart marker ends the run."""
+
+    def __init__(self, data, pos):
+        self.d, self.p, self.b, self.n = data, pos, 0, 0
+
+    def bit(self):
+        if self.n == 0:
+            if self.p >= len(self.d):
+                return 0
+            c = self.d[self.p]
+            if c == 0xFF:
+                nxt = self.d[self.p + 1] if self.p + 1 < len(self.d) else 0
+                if nxt == 0x00:
+                    self.p += 2
+                elif 0xD0 <= nxt <= 0xD7:
+                    self.p += 2
+                    return 0
+                else:
+                    self.p += 1
+                    return 0
+            else:
+                self.p += 1
+            self.b, self.n = c, 8
+        self.n -= 1
+        return (self.b >> self.n) & 1
+
+    def bits(self, k):
+        v = 0
+        for _ in range(k):
+            v = (v << 1) | self.bit()
+        return v
+
+    def huff(self, table):
+        code = 0
+        for length in range(1, 17):
+            code = (code << 1) | self.bit()
+            v = table.get((length, code))
+            if v is not None:
+                return v
+        raise ValueError('bad huffman code')
+
+    def align_restart(self):
+        self.n = 0
+        while self.p + 1 < len(self.d):
+            if self.d[self.p] == 0xFF and 0xD0 <= self.d[self.p + 1] <= 0xD7:
+                self.p += 2
+                return
+            self.p += 1
+
+
+def _extend(v, k):
+    return v - (1 << k) + 1 if k and v < (1 << (k - 1)) else v
+
+
+def _idct(coef):
+    """The 8×8 inverse DCT, separable, level-shifted to 0..255."""
+    tmp = [0.0] * 64
+    for v in range(8):
+        row = coef[v * 8:(v + 1) * 8]
+        for x in range(8):
+            s = 0.0
+            for u in range(8):
+                if row[u]:
+                    s += _COS[u][x] * row[u]
+            tmp[v * 8 + x] = s
+    out = [0] * 64
+    for x in range(8):
+        for y in range(8):
+            s = 0.0
+            for v in range(8):
+                t = tmp[v * 8 + x]
+                if t:
+                    s += _COS[v][y] * t
+            p = int(s + 128.5)
+            out[y * 8 + x] = 0 if p < 0 else (255 if p > 255 else p)
+    return out
+
+
+def _block(bits, c, qt, huff):
+    dct = [0] * 64
+    t = bits.huff(huff[(0, c['dc'])])
+    c['pred'] += _extend(bits.bits(t), t) if t else 0
+    dct[0] = c['pred'] * qt[c['tq']][0]
+    k = 1
+    while k < 64:
+        rs = bits.huff(huff[(1, c['ac'])])
+        r, s = rs >> 4, rs & 15
+        if s == 0:
+            if r != 15:
+                break
+            k += 16
+            continue
+        k += r
+        if k > 63:
+            break
+        dct[_ZIGZAG[k]] = _extend(bits.bits(s), s) * qt[c['tq']][k]
+        k += 1
+    return _idct(dct)
+
+
+def _upsample(plane, pw, ph, W, H, ch, cv, hmax, vmax):
+    """A component plane at full window size; subsampled chroma is interpolated, not replicated."""
+    if ch == hmax and cv == vmax:
+        return [plane[y * pw + x] for y in range(H) for x in range(W)]
+    out = [0] * (W * H)
+    for y in range(H):
+        fy = (y + 0.5) * cv / vmax - 0.5
+        y0 = int(math.floor(fy))
+        ty = fy - y0
+        y0 = 0 if y0 < 0 else (ph - 1 if y0 > ph - 1 else y0)
+        y1 = 0 if y0 + 1 < 0 else (ph - 1 if y0 + 1 > ph - 1 else y0 + 1)
+        for x in range(W):
+            fx = (x + 0.5) * ch / hmax - 0.5
+            x0 = int(math.floor(fx))
+            tx = fx - x0
+            x0 = 0 if x0 < 0 else (pw - 1 if x0 > pw - 1 else x0)
+            x1 = 0 if x0 + 1 < 0 else (pw - 1 if x0 + 1 > pw - 1 else x0 + 1)
+            a, b = plane[y0 * pw + x0], plane[y0 * pw + x1]
+            c, d = plane[y1 * pw + x0], plane[y1 * pw + x1]
+            top = a + (b - a) * tx
+            out[y * W + x] = top + (c + (d - c) * tx - top) * ty
+    return out
+
+
+def _jpeg_scan(data, pos, frame, scomps, qt, huff, restart):
+    comps = frame['comps']
+    byid = {c['id']: c for c in comps}
+    for sc in scomps:
+        c = byid[sc['id']]
+        c['dc'], c['ac'], c['pred'] = sc['dc'], sc['ac'], 0
+    hmax = max(c['h'] for c in comps)
+    vmax = max(c['v'] for c in comps)
+    mcux = (frame['w'] + 8 * hmax - 1) // (8 * hmax)
+    mcuy = (frame['h'] + 8 * vmax - 1) // (8 * vmax)
+    for c in comps:
+        c['pw'] = mcux * c['h'] * 8
+        c['plane'] = [0] * (c['pw'] * mcuy * c['v'] * 8)
+    bits = _Bits(data, pos)
+    for m in range(mcux * mcuy):
+        if restart and m and m % restart == 0:
+            bits.align_restart()
+            for c in comps:
+                c['pred'] = 0
+        for c in comps:
+            for by in range(c['v']):
+                for bx in range(c['h']):
+                    blk = _block(bits, c, qt, huff)
+                    x0 = ((m % mcux) * c['h'] + bx) * 8
+                    y0 = ((m // mcux) * c['v'] + by) * 8
+                    for y in range(8):
+                        base = (y0 + y) * c['pw'] + x0
+                        c['plane'][base:base + 8] = blk[y * 8:(y + 1) * 8]
+    W, H = frame['w'], frame['h']
+    full = [_upsample(c['plane'], c['pw'], mcuy * c['v'] * 8, W, H, c['h'], c['v'], hmax, vmax)
+            for c in comps]
+    out = bytearray(W * H * 4)
+    if len(full) == 1:
+        for i in range(W * H):
+            v = full[0][i]
+            v = 0 if v < 0 else (255 if v > 255 else int(v))
+            q = 4 * i
+            out[q] = out[q + 1] = out[q + 2] = v
+            out[q + 3] = 255
+        return W, H, bytes(out)
+    yp, cbp, crp = full[0], full[1], full[2]
+    for i in range(W * H):
+        Y, cb, cr = yp[i], cbp[i] - 128, crp[i] - 128
+        r = Y + 1.402 * cr
+        g = Y - 0.344136 * cb - 0.714136 * cr
+        b = Y + 1.772 * cb
+        q = 4 * i
+        out[q] = 0 if r < 0 else (255 if r > 255 else int(r))
+        out[q + 1] = 0 if g < 0 else (255 if g > 255 else int(g))
+        out[q + 2] = 0 if b < 0 else (255 if b > 255 else int(b))
+        out[q + 3] = 255
+    return W, H, bytes(out)
+
+
+def decode_jpeg(data: bytes):
+    """(w, h, RGBA) of a baseline JPEG; None for progressive, arithmetic or anything else not handled here."""
+    if data[:2] != b'\xff\xd8':
+        return None
+    qt, huff, frame, restart, i, n = {}, {}, None, 0, 2, len(data)
+    while i < n:
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        while i < n and data[i] == 0xFF:
+            i += 1
+        if i >= n:
+            break
+        m = data[i]
+        i += 1
+        if m in (0xD8, 0xD9, 0x01) or 0xD0 <= m <= 0xD7:
+            continue
+        if i + 2 > n:
+            break
+        ln = struct.unpack_from('>H', data, i)[0]
+        seg = data[i + 2:i + ln]
+        i += ln
+        if m == 0xDB:
+            k = 0
+            while k < len(seg):
+                pq, tq = seg[k] >> 4, seg[k] & 15
+                k += 1
+                if pq == 0:
+                    qt[tq] = list(seg[k:k + 64])
+                    k += 64
+                else:
+                    qt[tq] = [struct.unpack_from('>H', seg, k + 2 * j)[0] for j in range(64)]
+                    k += 128
+        elif m == 0xC4:
+            k = 0
+            while k < len(seg):
+                tc, th = seg[k] >> 4, seg[k] & 15
+                k += 1
+                counts = list(seg[k:k + 16])
+                k += 16
+                total = sum(counts)
+                huff[(tc, th)] = _huff_table(counts, list(seg[k:k + total]))
+                k += total
+        elif m in (0xC0, 0xC1):
+            h, w = struct.unpack_from('>HH', seg, 1)
+            comps = [{'id': seg[6 + 3 * c], 'h': seg[7 + 3 * c] >> 4, 'v': seg[7 + 3 * c] & 15,
+                      'tq': seg[8 + 3 * c]} for c in range(seg[5])]
+            frame = {'w': w, 'h': h, 'comps': comps}
+        elif m in (0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+            return None
+        elif m == 0xDD:
+            restart = struct.unpack_from('>H', seg, 0)[0]
+        elif m == 0xDA:
+            if frame is None:
+                return None
+            scomps = [{'id': seg[1 + 2 * c], 'dc': seg[2 + 2 * c] >> 4, 'ac': seg[2 + 2 * c] & 15}
+                      for c in range(seg[0])]
+            try:
+                return _jpeg_scan(data, i, frame, scomps, qt, huff, restart)
+            except (ValueError, IndexError, KeyError, struct.error):
+                return None
+    return None
+
+
 def picture(p, guid: str, transparent=None):
-    """(w, h, RGBA) of a library picture, None if it cannot be decoded here (JPEG, GIF)."""
+    """(w, h, RGBA) of a library picture, None if it cannot be decoded here (progressive JPEG, GIF)."""
     lib, _ = p._library()
     try:
         o, n = lib[bytes.fromhex(guid)]
@@ -268,6 +534,8 @@ def picture(p, guid: str, transparent=None):
             return decode_bmp(data, transparent)
         if data[:8] == b'\x89PNG\r\n\x1a\n':
             return decode_png(data)
+        if data[:3] == b'\xff\xd8\xff':
+            return decode_jpeg(data)
     except (ValueError, IndexError, KeyError, struct.error, zlib.error):
         return None
     return None
@@ -368,7 +636,7 @@ def render(p, window, scale: float = 1.0, marks: bool = False, states=None) -> b
                 pics[key] = picture(p, pic['image'], pic['transparent'])
             if pics[key]:
                 cv.image(pics[key], l, t, r, b)
-            else:   # a picture this renderer does not decode (JPEG...): a light box
+            else:   # a picture this renderer does not decode (progressive JPEG, GIF): a light box
                 cv.fill(l, t, r, b, (128, 128, 128), 0.35)
                 cv.frame(l, t, r, b, (200, 200, 200), 1)
         elif not o.get('shape') and kind != 'Line' and kind not in ('Rect', 'Text') and not kind.startswith('draw_') \

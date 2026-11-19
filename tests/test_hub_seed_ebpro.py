@@ -1131,6 +1131,68 @@ def test_render_draws_the_window():
     assert (w, h) == (2, 2) and rgba[3] == 0 and bytes(rgba[8:12]) == b"\xff\xff\xff\xff"
 
 
+def _jpeg(rgb=(200, 40, 40), size=(16, 16), **kw) -> bytes:
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", size, rgb).save(buf, "JPEG", quality=95, **kw)
+    return buf.getvalue()
+
+
+def _jpeg_project(jpg: bytes, guid: bytes) -> "ebpcmtp.Project":
+    """A window whose only widget is a picture from the library — the way a mnemonic is built."""
+    lib = struct.pack("<I", 1) + b"\xff" + guid + struct.pack("<I", len(jpg)) + jpg
+    groups = _groups([("pump", [(guid, None)], PIC)])
+    plain = _attrs(0, (240, 240, 240), (240, 240, 240), 1)
+    win = _window("Экран", 200, 120, "Слой 1", [
+        _wid(0x2D, (0, 0, 199, 119), _attrs(0, (0, 0, 0), (192, 192, 192), 1), first=True),
+        _wid(0x17, (20, 20, 100, 100), plain, [("", "Arial", 12, 20, 20, (0, 0, 0), 1)] * 2, pic=PIC),
+    ])
+    settings = b"\xff\xff\x01\x00\x0a\x00CTagObject" + bytes(12) + (b"\x0a\x80" + bytes(14)) * 3
+    body = b"\x00" * 8 + lib + groups + bytes(16) + win + bytes(2000) + settings
+    body += b"\x00" * ((-len(body)) % 16)
+    return ebpcmtp.Project.load(ebpcmtp.Project(378, "6.10.02.300", True, body).dump())
+
+
+def test_a_jpeg_picture_of_a_mnemonic_is_drawn_not_a_grey_box():
+    """Мнемосхемы часто собраны из JPEG: серый прямоугольник вместо картинки — это не мнемосхема."""
+    from PIL import Image
+    guid = bytes(range(64, 80))
+    p = _jpeg_project(_jpeg((200, 40, 40)), guid)
+    assert p.pictures()[guid.hex()]["format"] == "jpg"
+    im = Image.open(io.BytesIO(ebprender.render(p, "Экран"))).convert("RGB")
+    assert im.getpixel((60, 60)) == (200, 40, 40)      # the JPEG itself, not the grey box
+    assert im.getpixel((5, 5)) == (0, 0, 0)            # the window background around it
+
+
+def test_jpeg_decoding_matches_the_reference_for_every_subsampling():
+    """4:4:4, 4:2:2 and 4:2:0 — the chroma is interpolated, so a colour edge stays where it is."""
+    from PIL import Image
+    im = Image.new("RGB", (40, 24))
+    px = im.load()
+    for y in range(24):
+        for x in range(40):
+            px[x, y] = (200, 40, 40) if x < 20 else (40, 40, 200)
+    for sub in (0, 1, 2):
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=95, subsampling=sub)
+        data = buf.getvalue()
+        w, h, rgba = ebprender.decode_jpeg(data)
+        assert (w, h) == (40, 24)
+        ref = Image.open(io.BytesIO(data)).convert("RGB")
+        worst = 0
+        for y in range(h):
+            for x in range(w):
+                q = 4 * (y * w + x)
+                got = (rgba[q], rgba[q + 1], rgba[q + 2])
+                worst = max(worst, max(abs(got[i] - ref.getpixel((x, y))[i]) for i in range(3)))
+        assert worst <= 8, (sub, worst)
+
+
+def test_a_progressive_jpeg_is_refused_rather_than_drawn_wrong():
+    assert ebprender.decode_jpeg(_jpeg(progressive=True)) is None
+    assert ebprender.decode_jpeg(b"not a jpeg") is None
+
+
 def test_render_selects_picture_states_without_connecting_to_plc(tmp_path):
     from PIL import Image
     import server
