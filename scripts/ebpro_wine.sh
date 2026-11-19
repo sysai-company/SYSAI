@@ -22,6 +22,9 @@ set -u
 : "${EBPRO_DIR:?set EBPRO_DIR to the folder with EasyBuilder Pro.exe}"
 export DISPLAY="${DISPLAY:-:1}" WINEPREFIX="${WINEPREFIX:-$HOME/.wine-ebpro}" WINEARCH=win64
 export WINEDEBUG="${WINEDEBUG:--all}" WINEDLLOVERRIDES="mscoree=;mshtml="
+# window titles are UTF-8 (a Russian window name, a Turkish or Chinese EasyBuilder): in an ASCII locale xwininfo prints
+# «failure in conversion from UTF8_STRING» instead of the title and `open` never sees the project open
+export LC_ALL="${EBPRO_LOCALE:-C.UTF-8}"
 LOG="${EBPRO_LOG:-/tmp/ebpro_wine.log}"
 
 windows() { xwininfo -root -tree | grep -i 'easybuilder pro.exe' | grep -v -E ' 1x1|has no name|111x1|115x1|830x489'; }
@@ -33,6 +36,8 @@ corner_click() {
     set -- $geo "$2" "$3"
     xdotool mousemove $(($3 + $1 - $5)) $(($4 + $2 - $6)) click 1
 }
+# a message box of EasyBuilder: at +1+28 under a window manager, centred and 80 px high on a bare X server (Xvfb)
+MSGBOX='"EasyBuilder Pro": .* ([0-9]+x[0-9]+\+1\+28|[0-9]+x80\+[0-9]+\+[0-9]+)'
 recovery() { windows | grep -q 'Project Recovery' && { corner_click 'Project Recovery' 48 22; sleep 4; }; }
 
 case "${1:-}" in
@@ -69,15 +74,15 @@ open)
         list="$(windows)"
         if echo "$list" | grep -q -i 'Yaz. Tipini\|Font'; then      # «these fonts are not installed»: ignore them all
             # Cancel (the right-hand button at the bottom), then «ignore the missing font?» — Yes for each
-            echo "$list" | grep -q -E '"EasyBuilder Pro": .* [0-9]+x[0-9]+\+1\+28' && { xdotool key Return; sleep 2; }
+            echo "$list" | grep -q -E "$MSGBOX" && { xdotool key Return; sleep 2; }
             corner_click 'Yaz. Tipini\|Font' 42 17; sleep 2
             for _k in 1 2 3 4 5 6 7 8 9 10 11 12; do
-                windows | grep -q -E '"EasyBuilder Pro": .* [0-9]+x[0-9]+\+1\+28' || break
+                windows | grep -q -E "$MSGBOX" || break
                 xdotool key Return; sleep 2
             done
             continue
         fi
-        if echo "$list" | grep -q -E '"EasyBuilder Pro": .* [0-9]+x[0-9]+\+1\+28'; then     # a message box
+        if echo "$list" | grep -q -E "$MSGBOX"; then     # a message box
             [ -n "${EBPRO_SHOT:-}" ] && import -window root "$EBPRO_SHOT"
             xdotool key Return; sleep 3; xdotool key Return; sleep 2
             echo "FAILED $name: EasyBuilder showed a message instead of the project (corrupted file?)"; exit 1

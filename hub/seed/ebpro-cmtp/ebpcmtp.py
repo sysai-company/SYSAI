@@ -462,10 +462,11 @@ class Project:
         renumber the classes defined after them; checked after the fact."""
         old = self.payload
         edits = _renumber_edits(old, info, [(at, k) for at, _, _, k in inserts])
-        self._splice(edits + [(at, at + rm, data) for at, rm, data, _ in inserts] + list(extra))
+        changes = edits + [(at, at + rm, data) for at, rm, data, _ in inserts] + list(extra)
+        self._splice(changes)
         try:
             new = _map_info(self.payload, self.windows())
-            if new['counts'] != info['counts']:
+            if new['counts'] != info['counts'] and not _refs_follow(info, new, changes, self.payload):
                 raise ValueError('class references do not add up after the insert')
         except ValueError as exc:
             self.payload = old
@@ -1494,7 +1495,13 @@ def _map_info(pay: bytes, wins: list) -> dict:
         # a reference LL HH after a zero byte also reads as HH00 one byte earlier, as often as the real one
         best = max(c.values())
         tops = [v for v, n in c.items() if n == best]
-        return prefer if prefer in tops else min(tops, key=lambda v: (v & 0xff == 0, v))
+        if prefer in tops:
+            return prefer
+        # the shadow of the expected reference (00 LL HH read one byte early as LL00) can outnumber it — every real
+        # reference after a zero byte casts one, and other bytes add more: then the expected one is what is there
+        if prefer is not None and c.get(prefer) and all(v == (prefer & 0xff) << 8 for v in tops):
+            return prefer
+        return min(tops, key=lambda v: (v & 0xff == 0, v))
 
     lo = most_used(tail[0][0], 1 << 16, first, 0xffff, first)
     if lo != first:
@@ -1542,6 +1549,26 @@ def _clone_bytes(pay: bytes, s: int, e: int, info: dict) -> bytes:
                 raise ValueError('no class reference to copy the definition from')
             rec = rec.replace(cdef, tag)
     return rec
+
+
+def _refs_follow(before: dict, after: dict, changes, pay: bytes) -> bool:
+    """The class references of the settings after an edit, when their count differs: every reference found before
+    is found again where the edit moved it, and nothing is lost in the sub-object classes. A «reference» found only
+    now is plain data that the new, shifted range of numbers happens to cover (a u32 5000 after a zero byte reads
+    as 0x8800); it is accepted only if its value lies outside the old range — a reference the edit forgot to
+    renumber would still carry an old number."""
+    if after['counts'][1] != before['counts'][1]:
+        return False
+    deltas = sorted((s, len(data) - (e - s)) for s, e, data in changes if len(data) != e - s)
+
+    def moved(k):
+        return k + sum(d for s, d in deltas if s < k)
+    new = set(after['tail_refs'])
+    if any(moved(k) not in new for k in before['tail_refs']):
+        return False
+    lo, hi = before['range']
+    return all(not lo <= (pay[k] | pay[k + 1] << 8) <= hi
+               for k in new - {moved(k) for k in before['tail_refs']})
 
 
 def _renumber_edits(pay: bytes, info: dict, inserts) -> list:

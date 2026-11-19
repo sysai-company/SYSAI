@@ -2,6 +2,7 @@
 and objects from a donor project (tags, pictures and window links follow), point function keys at windows, add
 OPC UA tags, resize objects, check a project. Every change is checked after the fact (class numbering, window
 numbers, picture and tag tables); a change that does not check out leaves the project as it was."""
+import collections
 import hashlib
 import re
 import struct
@@ -24,8 +25,10 @@ def _sure(w: dict, what: str) -> None:
         raise ValueError(f'window {w["name"]!r}: where its record ends is not known, {what} is not safe')
 
 
-def _numbers(p: Project) -> dict:
-    return {w['guid']: w['number'] for w in p.windows()}
+def _numbers(p: Project) -> collections.Counter:
+    """Every window as (GUID, number), counted: EasyBuilder keeps the GUID of a copied window, so in real projects
+    several windows share one (8 groups in a cMT project of 85 windows) — keyed by GUID alone they would collapse."""
+    return collections.Counter((w['guid'], w['number']) for w in p.windows())
 
 
 def _guarded(p: Project, fn):
@@ -79,7 +82,8 @@ def delete_window(p: Project, window) -> list:
     info = _map_info(pay, ws)
     _check_range(pay, s, e, info, 'deleting')
     before = _numbers(p)
-    before.pop(w['guid'], None)
+    before[(w['guid'], w['number'])] -= 1
+    before += collections.Counter()     # drops the deleted window when it was the only one with its GUID
     left = [ln for ln in p.links() if ln['target'] == w['number'] and ln['window'] != w['number']]
 
     def run():
@@ -616,7 +620,7 @@ def import_window(p: Project, donor, src, number=None, name=None, tags=None, win
     def run():
         p._insert(info, [(at, 4, data, map_slots(dw))], g.extra())
         nums = _numbers(p)
-        if nums.get(guid.hex()) != number or any(nums.get(k) != v for k, v in before.items()):
+        if nums[(guid.hex(), number)] != 1 or before - nums:
             raise ValueError(f'window number {number} cannot be placed reliably; take {prev["number"] + 1}')
         g.verify()
     _guarded(p, run)

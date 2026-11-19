@@ -514,7 +514,7 @@ def test_mcp_server_over_stdio(tmp_path):
 
     try:
         assert rpc(1, "initialize", {"protocolVersion": "2025-06-18"})["result"]["serverInfo"] == {
-            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.8.3"}
+            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.8.4"}
         assert [t["name"] for t in rpc(2, "tools/list")["result"]["tools"]] == TOOLS
         err, text = call(3, "cmtp_info", path=str(src))
         info = json.loads(text)
@@ -722,6 +722,38 @@ def test_delete_objects_and_windows():
     for bad in ((0, 0), (0, 4), (0, 1), (1, 0)):
         with pytest.raises(ValueError):
             ebpedit.delete_object(s, *bad)
+
+
+def test_windows_that_share_a_guid_are_deleted_and_taken_like_any_other():
+    """EasyBuilder keeps the GUID when an engineer copies a window: a real cMT project of 85 windows has 8 groups of
+    windows with one GUID. Keyed by GUID the check saw «window numbers moved» and refused every delete there."""
+    p = _menu_project()
+    assert p.clone_window("Нория 1", "Нория 2", number=12) == 12
+    orig, copy = p.window("Нория 1")["guid"], p.window("Нория 2")["guid"]
+    p.payload = p.payload.replace(bytes.fromhex(copy), bytes.fromhex(orig))   # as EasyBuilder's own copy is
+    assert p.window("Нория 2")["guid"] == orig
+    ebpedit.delete_window(p, 12)
+    q = _reload(p)
+    assert [(w["number"], w["name"]) for w in q.windows()] == [(0, "Главное"), (1, "Нория 1"), (2, "Настройки")]
+    assert q.window("Нория 1")["guid"] == orig
+    assert p.clone_window("Нория 1", "Нория 3", number=13) == 13
+    q.payload = p.payload.replace(bytes.fromhex(p.window("Нория 3")["guid"]), bytes.fromhex(orig))
+    ebpedit.delete_object(q, "Нория 1", 1)                                  # a window beside its GUID twin
+    assert [o["kind"] for o in _reload(q).window(1)["objects"]] == ["Window", "ToggleSwitch", "FunctionKey"]
+
+
+def test_settings_reference_shadow_and_coinciding_data_do_not_block_an_edit():
+    """After an edit shifts the class numbers, 00 LL HH read one byte early (LL00) may outnumber the real reference,
+    and plain data may fall into the new range: neither is a reference the edit got wrong."""
+    from ebpcmtp import _refs_follow
+    before = {"tail_refs": [100, 200], "counts": (2, ()), "range": (0x8801, 0x8831)}
+    pay = bytearray(400)
+    pay[60:62] = (0x8800).to_bytes(2, "little")                                 # data the new range happens to cover
+    after = {"tail_refs": [60, 96, 196], "counts": (3, ())}
+    assert _refs_follow(before, after, [(10, 14, b"")], bytes(pay))            # 4 bytes out before them: moved by -4
+    pay[60:62] = (0x8810).to_bytes(2, "little")                                 # an old number: a forgotten reference
+    assert not _refs_follow(before, after, [(10, 14, b"")], bytes(pay))
+    assert not _refs_follow(before, {"tail_refs": [96], "counts": (1, ())}, [(10, 14, b"")], bytes(pay))
 
 
 def test_new_tags_and_their_use():
