@@ -7,6 +7,7 @@
 Правила разбора имён — те же, что у `pic-index` на ПК инженера (`hub/seed/pic-index/picindex.py`): один пак
 понимается одинаково и в хранилище, и в локальной папке.
 """
+import base64
 import json
 import os
 import sys
@@ -126,6 +127,43 @@ def missing(rights, equipment: str, states: list, folder: str = PACK) -> dict:
     return {"equipment": equipment, "folder": folder, "sets": sets,
             "have": sorted(have), "missing": [s for s in want if s not in have],
             "complete": bool(want) and all(s in have for s in want)}
+
+
+def placeholder(state: str = "unknown", size: int = 0) -> bytes:
+    """Заглушка: ноль в цвете состояния на прозрачном фоне. Экран не врёт картинкой, которой нет.
+
+    Рисуется тем же кодом, что и на ПК инженера (`picindex.placeholder`): пак и локальная папка дают
+    одинаковые картинки.
+    """
+    pic = _picindex()
+    return pic.placeholder(state, size or pic.PLACEHOLDER_SIZE)
+
+
+def ensure(rights, equipment: str, states: list, folder: str = PACK) -> dict:
+    """Дорисовать в пак то, чего в нём нет: по нулю на каждое недостающее состояние.
+
+    Кладёт `{папка}/{механизм}/{механизм}_{состояние}.png` и пересобирает индекс. Второй раз то же самое не
+    рисуется: после пересборки состояние уже есть в паке.
+    """
+    equipment = str(equipment or "").strip()
+    if not equipment:
+        raise PicturesError("Не сказано, для какого механизма рисовать")
+    got = missing(rights, equipment, states, folder)
+    made, failed = [], []
+    for state in got["missing"]:
+        path = f"{folder}/{equipment}/{equipment}_{state}.png"
+        try:
+            files.put_inline(rights, path, b64=base64.b64encode(placeholder(state)).decode("ascii"),
+                             note=f"заглушка: {equipment}, {state}")
+        except files.FilesError as exc:
+            failed.append({"state": state, "error": str(exc)})
+            continue
+        made.append({"state": state, "path": path})
+    if made:
+        build(rights, folder)
+    after = missing(rights, equipment, states, folder)
+    return {"equipment": equipment, "folder": folder, "made": made, "failed": failed,
+            "have": after["have"], "missing": after["missing"], "complete": after["complete"]}
 
 
 def overview(rights, equipment: str = "", folder: str = PACK) -> dict:

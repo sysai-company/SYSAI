@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import picindex  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "1.0.4"
+VERSION = "1.1.0"
 DIR = {"type": "string", "description": r"Папка с картинками (вложенные папки тоже), например C:\Projects\line\hmi\pictures"}
 STATE = {"type": "string", "description": "Состояние: " + ", ".join(picindex.STATES)}
 INSTRUCTIONS = (
@@ -69,6 +69,15 @@ TOOLS = [
         "Что не так: в наборе нет типовых состояний (есть on, но нет off или alarm), картинки одного набора разного "
         "размера, одинаковые картинки, нераспознанные, тяжёлые для панели (больше 1 МБ или 1024 точек). "
         "Список {level, file или set, text}.", {"dir": DIR}),
+    _rw("pics_placeholder", "Дорисовать недостающие состояния",
+        "Чего в библиотеке нет — дорисовать: на каждое недостающее состояние кладёт в папку механизма картинку-заглушку "
+        "«ноль в цвете состояния на прозрачном фоне» (off — серый, on — зелёный, alarm — красный, warning — жёлтый, "
+        "manual — синий) и обновляет индекс. Второй раз то же самое не рисуется. В ответе: made (что нарисовано), "
+        "have, missing, complete. Заглушка — не картинка механизма: она честно показывает, что символа не хватает, "
+        "и её место инженер заменит настоящей.",
+        {"dir": DIR, "equipment": {"type": "string", "description": "Вид оборудования: «нория», «шнек»… — папка с этим именем"},
+         "states": {"type": "string", "description": "Какие состояния нужны, через запятую: " + ", ".join(picindex.STATES)}},
+        ("dir", "equipment", "states")),
 ]
 
 
@@ -98,6 +107,9 @@ def _call(name, args):
             return _text(_json(picindex.label(args["dir"], args["file"], **fields)))
         if name == "pics_check":
             return _text(_json(picindex.check(args["dir"])))
+        if name == "pics_placeholder":
+            states = [s for s in str(args.get("states") or "").replace(";", ",").split(",") if s.strip()]
+            return _text(_json(picindex.ensure_placeholders(args["dir"], args["equipment"], states)))
         return _text(f"нет инструмента {name}", True)
     except picindex.PicError as exc:
         return _text(str(exc), True)

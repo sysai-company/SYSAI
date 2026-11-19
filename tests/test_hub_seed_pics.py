@@ -18,7 +18,7 @@ SEED = Path(__file__).resolve().parent.parent / "hub" / "seed" / "pic-index"
 sys.path.append(str(SEED))          # at the end: other seed tools have a `server` module of their own
 import picindex  # noqa: E402
 
-TOOLS = ["pics_index_update", "pics_find", "pics_list", "pics_label_update", "pics_check"]
+TOOLS = ["pics_index_update", "pics_find", "pics_list", "pics_label_update", "pics_check", "pics_placeholder"]
 
 
 def _png(width, height, color=(200, 30, 30)) -> bytes:
@@ -101,7 +101,7 @@ def _server(calls):
 def test_the_tool_passes_the_hub_check():
     meta, report = hub.check(_files())
     assert report == {"errors": [], "warnings": []} and meta["name"] == "pic-index" and meta["kind"] == "mcp"
-    assert meta["platform"] == "any" and meta["version"] == "1.0.4" and meta["run"] == "python server.py"
+    assert meta["platform"] == "any" and meta["version"] == "1.1.0" and meta["run"] == "python server.py"
     assert [t.strip() for t in meta["tools"].split(",")] == TOOLS
     assert not any(w in src for src in (f.read_text(encoding="utf-8") for f in SEED.glob("*.py"))
                    for w in ("import socket", "urllib", "http.client", "requests", "subprocess"))
@@ -355,7 +355,7 @@ def test_the_mcp_server_end_to_end(tmp_path):
     assert out[0]["result"]["serverInfo"]["name"] == "pic-index" and "pics_find" in out[0]["result"]["instructions"]
     tools = out[1]["result"]["tools"]
     assert [t["name"] for t in tools] == TOOLS
-    assert [t["annotations"]["readOnlyHint"] for t in tools] == [False, True, True, False, True]
+    assert [t["annotations"]["readOnlyHint"] for t in tools] == [False, True, True, False, True, False]
     assert all(t["inputSchema"]["required"][0] == "dir" and t["inputSchema"]["additionalProperties"] is False for t in tools)
     results = [json.loads(x["result"]["content"][0]["text"]) for x in out[2:7]]
     assert (results[0]["total"], results[0]["added"], results[0]["sets"]) == (18, 18, 9)
@@ -366,3 +366,69 @@ def test_the_mcp_server_end_to_end(tmp_path):
     assert out[7]["result"]["isError"] and "нет папки" in out[7]["result"]["content"][0]["text"]
     assert out[8]["result"]["isError"] and "не хватает поля 'query'" in out[8]["result"]["content"][0]["text"]
     assert out[9]["result"]["isError"] and "нет инструмента pics_nothing" in out[9]["result"]["content"][0]["text"]
+
+
+def _read_png(data: bytes) -> tuple:
+    """(width, height, pixels) of an RGBA PNG written by picindex: filter 0 on every row, one IDAT."""
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height, depth, ctype = struct.unpack(">IIBB", data[16:26])
+    assert (depth, ctype) == (8, 6)
+    body, at = b"", 8
+    while at < len(data):
+        size = struct.unpack(">I", data[at:at + 4])[0]
+        kind = data[at + 4:at + 8]
+        if kind == b"IDAT":
+            body += data[at + 8:at + 8 + size]
+        at += 12 + size
+    raw = zlib.decompress(body)
+    stride = width * 4
+    rows = []
+    for y in range(height):
+        assert raw[y * (stride + 1)] == 0
+        rows.append(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+    return width, height, rows
+
+
+def test_a_placeholder_is_a_zero_on_a_transparent_background():
+    """Заглушка — ноль в цвете состояния: прозрачный фон, обводка цветом, внутри пусто."""
+    width, height, rows = _read_png(picindex.placeholder("alarm"))
+    assert (width, height) == (picindex.PLACEHOLDER_SIZE, picindex.PLACEHOLDER_SIZE)
+    assert rows[0][3] == 0 and rows[0][width * 4 - 1] == 0          # углы прозрачны
+    middle = height // 2
+    assert rows[middle][width * 2 + 3] == 0                          # внутри нуля пусто
+    wall = next(rows[middle][x * 4:x * 4 + 4] for x in range(width) if rows[middle][x * 4 + 3] == 255)
+    assert tuple(wall[:3]) == picindex.STATE_COLORS["alarm"]         # обводка — цветом состояния
+    assert picindex.placeholder("on") != picindex.placeholder("off")  # цвет — это состояние
+    assert picindex.placeholder("нет такого") == picindex.placeholder("unknown")
+
+
+def test_placeholders_fill_only_what_the_library_lacks(tmp_path):
+    """Дорисовывается только недостающее, второй раз — ничего, и индекс сразу видит новое состояние."""
+    root = Path(_library(tmp_path))
+    picindex.refresh(str(root))
+    got = picindex.ensure_placeholders(str(root), "шнек", ["off", "on", "alarm"])
+    assert [m["state"] for m in got["made"]] == ["alarm"] and got["failed"] == []
+    assert set(got["have"]) == {"off", "on", "alarm"} and got["missing"] == [] and got["complete"] is True
+    made = root / "шнек" / "шнек_alarm.png"
+    assert made.is_file() and made.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    again = picindex.ensure_placeholders(str(root), "шнек", ["off", "on", "alarm"])
+    assert again["made"] == [] and again["complete"] is True
+    found = picindex.find(str(root), "шнек", "alarm")
+    assert any(s["states"].get("alarm") == "шнек/шнек_alarm.png" for s in found["sets"])
+    with pytest.raises(picindex.PicError, match="для какого механизма"):
+        picindex.ensure_placeholders(str(root), "", ["off"])
+    with pytest.raises(picindex.PicError, match="какие состояния"):
+        picindex.ensure_placeholders(str(root), "шнек", [])
+
+
+def test_the_mcp_server_draws_the_missing_states(tmp_path):
+    root = _library(tmp_path)
+    out = _server([("pics_placeholder", {"dir": root, "equipment": "шнек", "states": "off, on, alarm"}),
+                   ("pics_placeholder", {"dir": root, "equipment": "шнек", "states": "off,on,alarm"}),
+                   ("pics_placeholder", {"dir": root, "equipment": "", "states": "off"})])
+    first = json.loads(out[2]["result"]["content"][0]["text"])
+    assert [m["state"] for m in first["made"]] == ["alarm"] and first["complete"] is True
+    assert (Path(root) / "шнек" / "шнек_alarm.png").is_file()
+    second = json.loads(out[3]["result"]["content"][0]["text"])
+    assert second["made"] == [] and second["complete"] is True
+    assert out[4]["result"]["isError"] and "для какого механизма" in out[4]["result"]["content"][0]["text"]

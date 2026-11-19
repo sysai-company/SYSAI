@@ -8,6 +8,7 @@ import json
 import os
 import re
 import struct
+import zlib
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -667,3 +668,103 @@ def check(folder) -> dict:
     order = {"error": 0, "warning": 1, "info": 2}
     issues.sort(key=lambda i: order[i["level"]])
     return {"dir": root, "summary": {k: sum(1 for i in issues if i["level"] == k) for k in order}, "issues": issues[:2000]}
+
+
+# ----------------------------------------------------------------------------- placeholders
+# Чего в паке нет, агент рисует сам: ноль в цвете состояния на прозрачном фоне. Это не картинка механизма —
+# это честная заглушка, по которой на экране сразу видно, что символа не хватает.
+PLACEHOLDER_SIZE = 64
+STATE_COLORS = {
+    "off": (150, 156, 166), "on": (46, 160, 92), "alarm": (200, 60, 50),
+    "warning": (214, 160, 40), "manual": (60, 110, 200), "unknown": (120, 128, 140),
+}
+
+
+def _png(width: int, height: int, rgba: bytearray) -> bytes:
+    """PNG из готовых пикселей RGBA: без внешних библиотек, фильтр 0 на каждой строке."""
+    stride = width * 4
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)
+        raw += rgba[y * stride:(y + 1) * stride]
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (struct.pack(">I", len(body)) + kind + body
+                + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
+def _zero(size: int, color: tuple, samples: int = 4) -> bytearray:
+    """Ноль на прозрачном фоне: овал-обводка, сглаженный сверхсэмплингом (samples×samples проб на пиксель)."""
+    r, g, b = color
+    out = bytearray(size * size * 4)
+    half = size / 2.0
+    ax, ay = 0.60, 0.88          # полуоси овала в долях половины картинки
+    band = 0.15                  # половина толщины обводки
+    step = 1.0 / samples
+    for y in range(size):
+        for x in range(size):
+            inside = 0
+            for sy in range(samples):
+                v = (y + (sy + 0.5) * step - half) / half
+                for sx in range(samples):
+                    u = (x + (sx + 0.5) * step - half) / half
+                    d = ((u / ax) ** 2 + (v / ay) ** 2) ** 0.5
+                    if abs(d - 1.0) <= band:
+                        inside += 1
+            if not inside:
+                continue
+            i = (y * size + x) * 4
+            out[i], out[i + 1], out[i + 2] = r, g, b
+            out[i + 3] = int(255 * inside / (samples * samples))
+    return out
+
+
+def placeholder(state: str = "unknown", size: int = PLACEHOLDER_SIZE) -> bytes:
+    """Заглушка: ноль в цвете состояния на прозрачном фоне."""
+    color = STATE_COLORS.get(str(state or "").strip().lower(), STATE_COLORS["unknown"])
+    return _png(size, size, _zero(size, color))
+
+
+def ensure_placeholders(folder, equipment: str, states: list) -> dict:
+    """Дорисовать в пак то, чего в нём нет: по нулю на каждое недостающее состояние.
+
+    Кладёт `{папка}/{механизм}/{механизм}_{состояние}.png` и обновляет индекс. Второй раз то же самое не
+    рисуется: после обновления состояние уже есть в паке.
+    """
+    root, index = _ready(folder)
+    equipment = str(equipment or "").strip()
+    if not equipment:
+        raise PicError("Не сказано, для какого механизма рисовать")
+    want = [str(s).strip().lower() for s in (states or []) if str(s).strip()]
+    if not want:
+        raise PicError("Не сказано, какие состояния нужны")
+    have = set()
+    for one in sets_of(index["pictures"]):
+        if one["equipment"] == equipment:
+            have |= set(one["states"])
+    made, failed = [], []
+    for state in [s for s in want if s not in have]:
+        rel = f"{equipment}/{equipment}_{state}.png"
+        path = os.path.join(root, equipment, f"{equipment}_{state}.png")
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(placeholder(state))
+        except OSError as exc:
+            failed.append({"state": state, "error": str(exc)})
+            continue
+        made.append({"state": state, "file": rel})
+    if made:
+        refresh(root)
+    after = set()
+    for one in sets_of(_load(root)["pictures"]):
+        if one["equipment"] == equipment:
+            after |= set(one["states"])
+    return {"dir": str(root), "equipment": equipment, "made": made, "failed": failed,
+            "have": sorted(after), "missing": [s for s in want if s not in after],
+            "complete": all(s in after for s in want)}
