@@ -94,6 +94,55 @@ def delete_window(p: Project, window) -> list:
     return left
 
 
+# -- a new project from a base ----------------------------------------------------------------------------------------
+# The windows every EasyBuilder project has (its template: project/template_<WxH>.cmtp of the EasyBuilder folder):
+# keypads, ASCII keyboards, accounts, EasyAccess, screen saver. Numeric inputs and logins open them — they stay.
+SYSTEM_NAMES = re.compile(r'^(Monitor Mode|Common Window|Device Response|HMI Connection|Password Restriction|'
+                          r'Storage Space Insufficient|Backup|Keypad \d+|ASCII |Login & Logout|Add account|'
+                          r'Delete account|Set privilege|Set password|EasyAccess|Screen Saver|Wechat Code|'
+                          r'System (Standard|Flat) |RU/EN v\d|RUS v\d|ENG v\d)')
+
+
+def system_window(w: dict) -> bool:
+    return w['number'] < SYSTEM_WINDOWS or bool(SYSTEM_NAMES.match(w['name'] or ''))
+
+
+def new_project(p: Project, keep=(), start=SYSTEM_WINDOWS, start_name=None, clear_start=True) -> dict:
+    """Turn a base (an old project in the house style, or a template saved by EasyBuilder) into an empty project of
+    the same panel, devices, tag table, picture library and system windows: every other window goes, except `keep`
+    (names or numbers); the start window stays and loses its objects (those that are safe to delete).
+    Returns {deleted, kept, failed, start: {number, name, left: [{index, kind, why}]}}."""
+    wanted = {str(k).strip().lower() for k in keep or ()}
+    st = p.window(start)
+    out = {'deleted': [], 'kept': [], 'failed': []}
+    for w in sorted(p.windows(), key=lambda x: -x['offset']):
+        if w['number'] == st['number'] or system_window(w):
+            continue
+        if str(w['number']) in wanted or (w['name'] or '').strip().lower() in wanted:
+            out['kept'].append({'number': w['number'], 'name': w['name']})
+            continue
+        try:
+            delete_window(p, w['number'])
+            out['deleted'].append({'number': w['number'], 'name': w['name']})
+        except ValueError as exc:
+            out['failed'].append({'number': w['number'], 'name': w['name'], 'why': str(exc)})
+    left = []
+    if clear_start:
+        for o in sorted(p.window(st['number'])['objects'], key=lambda x: -x['index']):
+            if o['kind'] == 'Window':
+                continue
+            try:
+                delete_object(p, st['number'], o['index'])
+            except ValueError as exc:
+                left.append({'index': o['index'], 'kind': o['kind'], 'why': str(exc)})
+    if start_name:
+        p.rename_window(st['number'], str(start_name))
+    sw = p.window(st['number'])
+    out['start'] = {'number': sw['number'], 'name': sw['name'], 'objects': len(sw['objects']) - 1,
+                    'left': sorted(left, key=lambda x: x['index'])}
+    return out
+
+
 # -- function keys --------------------------------------------------------------------------------------------------
 def link(p: Project, window, index: int, to) -> int:
     """Point a function key that opens a window (full-screen or pop-up) at window `to`. Returns its number."""

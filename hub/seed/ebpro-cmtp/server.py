@@ -36,6 +36,27 @@ TOOLS = [
         "annotations": {"readOnlyHint": True, "openWorldHint": False},
     },
     {
+        "name": "cmtp_new",
+        "title": "Новый проект по основе",
+        "description": "Создать новый пустой проект EasyBuilder Pro по проекту-основе: прошлый проект в стиле компании "
+                       "(та же панель, устройство OPC UA, таблица тегов, картинки, слои) или шаблон, сохранённый в "
+                       "EasyBuilder (Файл → Новый; шаблоны project/template_<разрешение>.cmtp в папке EasyBuilder "
+                       "сначала открыть и сохранить в нужной версии). Остаются системные окна EasyBuilder (0-9, "
+                       "клавиатуры, учётные записи, EasyAccess) и стартовое окно — без объектов; рабочие окна "
+                       "удаляются, кроме keep. Основа не меняется, результат — out_file. Дальше окна берут из "
+                       "доноров (cmtp_edit import_window) и правят. В ответе — что удалено и что не удалось убрать.",
+        "inputSchema": {"type": "object", "properties": {
+            "base": {"type": "string", "description": "Проект-основа .cmtp/.emtp"},
+            "out_file": {"type": "string", "description": "Новый проект (не равен основе)"},
+            "keep": {"type": "array", "items": {"type": "string"},
+                     "description": "Рабочие окна основы, которые оставить (имя или номер): меню, шапка, журнал аварий"},
+            "start": {"type": "integer", "description": "Номер стартового окна (по умолчанию 10)"},
+            "start_name": {"type": "string", "description": "Новое имя стартового окна"},
+            "clear_start": {"type": "boolean", "description": "Убрать объекты стартового окна (по умолчанию да)"}},
+            "required": ["base", "out_file"], "additionalProperties": False},
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    },
+    {
         "name": "cmtp_labels",
         "title": "Тексты и имена окон",
         "description": "Выписать все подписи и имена окон проекта (тексты UTF-16) с их смещениями — чтобы понять "
@@ -414,6 +435,31 @@ def _call(name, args):
             rev = int(args["revision"])
             Project(rev, str(args["version"]), rev >= 240, payload).save(args["out_file"])
             return _text(f"Собран проект → {args['out_file']}")
+        if name == "cmtp_new":
+            base, out = os.path.abspath(args["base"]), os.path.abspath(args["out_file"])
+            if base == out:
+                return _text("out_file совпадает с основой: основа не меняется, укажите новый файл", True)
+            p = Project.load(base)
+            r = ebpedit.new_project(p, args.get("keep") or (), int(args.get("start") or ebpedit.SYSTEM_WINDOWS),
+                                    args.get("start_name"), args.get("clear_start", True) is not False)
+            p.save(out)
+            st = r["start"]
+            lines = [f"Новый проект → {out} (основа {os.path.basename(base)}, EasyBuilder {p.version})",
+                     f"Удалено рабочих окон: {len(r['deleted'])}; оставлено по keep: "
+                     + (", ".join(f"{w['number']} «{w['name']}»" for w in r["kept"]) or "—"),
+                     f"Стартовое окно {st['number']} «{st['name']}»: объектов осталось {st['objects']}"]
+            if r["failed"]:
+                lines.append("Не удалось удалить (уберите в EasyBuilder или оставьте): "
+                             + "; ".join(f"{w['number']} «{w['name']}» — {w['why']}" for w in r["failed"]))
+            if st["left"]:
+                kinds = {}
+                for o in st["left"]:
+                    kinds[o["kind"]] = kinds.get(o["kind"], 0) + 1
+                lines.append("В стартовом окне остались объекты, которые безопасно убрать только в EasyBuilder: "
+                             + ", ".join(f"{k} ×{n}" for k, n in kinds.items()))
+            lines.append("Дальше: cmtp_edit import_window из донора (та же версия EasyBuilder), add_tags, link; "
+                         "проверка — cmtp_check")
+            return dict(_text("\n".join(lines)), structuredContent=dict(r, out_file=out, version=p.version))
         if name == "cmtp_relabel":
             p = Project.load(args["path"])
             off = next((o for o, s in p.labels() if s == args["old"]), None)
@@ -729,7 +775,7 @@ def _handle(msg):
         if method == "initialize":
             _out({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": str(params.get("protocolVersion") or PROTOCOL),
                   "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.8.4"},
+                  "serverInfo": {"name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.9.0"},
                   "instructions": INSTRUCTIONS}})
         elif method == "ping":
             _out({"jsonrpc": "2.0", "id": mid, "result": {}})

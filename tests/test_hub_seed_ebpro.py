@@ -19,7 +19,7 @@ SEED = Path(__file__).resolve().parent.parent / "hub" / "seed" / "ebpro-cmtp"
 sys.path.insert(0, str(SEED))
 import ebpcmtp  # noqa: E402
 
-TOOLS = ["cmtp_info", "cmtp_labels", "cmtp_extract_images", "cmtp_unpack", "cmtp_pack", "cmtp_relabel",
+TOOLS = ["cmtp_info", "cmtp_new", "cmtp_labels", "cmtp_extract_images", "cmtp_unpack", "cmtp_pack", "cmtp_relabel",
          "cmtp_windows", "cmtp_objects", "cmtp_tags", "cmtp_scene", "cmtp_links", "cmtp_check", "cmtp_render", "cmtp_edit"]
 
 
@@ -514,7 +514,7 @@ def test_mcp_server_over_stdio(tmp_path):
 
     try:
         assert rpc(1, "initialize", {"protocolVersion": "2025-06-18"})["result"]["serverInfo"] == {
-            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.8.4"}
+            "name": "ebpro-cmtp", "title": "EasyBuilder Pro .cmtp/.emtp", "version": "1.9.0"}
         assert [t["name"] for t in rpc(2, "tools/list")["result"]["tools"]] == TOOLS
         err, text = call(3, "cmtp_info", path=str(src))
         info = json.loads(text)
@@ -740,6 +740,29 @@ def test_windows_that_share_a_guid_are_deleted_and_taken_like_any_other():
     q.payload = p.payload.replace(bytes.fromhex(p.window("Нория 3")["guid"]), bytes.fromhex(orig))
     ebpedit.delete_object(q, "Нория 1", 1)                                  # a window beside its GUID twin
     assert [o["kind"] for o in _reload(q).window(1)["objects"]] == ["Window", "ToggleSwitch", "FunctionKey"]
+
+
+def test_a_new_project_from_a_base_keeps_the_system_windows_and_empties_the_rest(tmp_path):
+    import server
+    from ebpcmtp import Project
+    p = _menu_project()
+    for name, number in (("Нория 2", 12), ("Нория 3", 13), ("Keypad 1 - Integer", 14)):
+        assert p.clone_window("Нория 1", name, number=number) == number
+    base = tmp_path / "base.cmtp"
+    p.save(str(base))
+    q = Project.load(str(base))
+    r = ebpedit.new_project(q, keep=["нория 3"], start=1, start_name="Главное окно")
+    assert [w["number"] for w in r["deleted"]] == [12] and [w["name"] for w in r["kept"]] == ["Нория 3"]
+    s = _reload(q)
+    assert [(w["number"], w["name"]) for w in s.windows()] == [
+        (0, "Главное"), (1, "Главное окно"), (2, "Настройки"), (13, "Нория 3"), (14, "Keypad 1 - Integer")]
+    left = {o["index"] for o in r["start"]["left"]}
+    assert r["start"]["objects"] == len(left) == len(s.window(1)["objects"]) - 1      # what stays is named
+    out = tmp_path / "new.cmtp"
+    res = server._call("cmtp_new", {"base": str(base), "out_file": str(out), "keep": ["13"], "start": 1})
+    assert not res.get("isError") and out.exists() and res["structuredContent"]["deleted"]
+    assert server._call("cmtp_new", {"base": str(base), "out_file": str(base)})["isError"]
+    assert Project.load(str(base)).window(12)["name"] == "Нория 2"                  # the base is not touched
 
 
 def test_settings_reference_shadow_and_coinciding_data_do_not_block_an_edit():

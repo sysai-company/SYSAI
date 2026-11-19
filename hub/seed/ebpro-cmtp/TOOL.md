@@ -2,10 +2,10 @@
 name: ebpro-cmtp
 kind: mcp
 description: Читает, рисует и собирает проекты Weintek EasyBuilder Pro (.cmtp/.emtp) без EasyBuilder — окна, объекты, теги OPC UA, меню (какая кнопка какое окно открывает), картинки; PNG окна как на панели; проверка (за краем, не влезает текст, кнопка в никуда, тега нет); правки в новый файл — тексты, сдвиг, размер, теги, копии и удаление окон и объектов, кнопки на окна, новые теги, окна и объекты из проекта-донора. Основа навыков ebpro-project, ebpro-donor, ebpro-team и холста окна «Агент SYSAI».
-version: 1.8.4
+version: 1.9.0
 run: python server.py
 platform: any
-tools: cmtp_info, cmtp_labels, cmtp_extract_images, cmtp_unpack, cmtp_pack, cmtp_relabel, cmtp_windows, cmtp_objects, cmtp_tags, cmtp_scene, cmtp_links, cmtp_check, cmtp_render, cmtp_edit
+tools: cmtp_info, cmtp_new, cmtp_labels, cmtp_extract_images, cmtp_unpack, cmtp_pack, cmtp_relabel, cmtp_windows, cmtp_objects, cmtp_tags, cmtp_scene, cmtp_links, cmtp_check, cmtp_render, cmtp_edit
 requires: python>=3.11
 ---
 # EasyBuilder Pro: проекты .cmtp / .emtp
@@ -189,6 +189,28 @@ PNG окна: фон, фигуры, картинки первого состоя
   — окно донора со всеми объектами под новым номером (без `number` — после последнего окна).
 - `{"op": "import_objects", "from": "C:\\Projects\\donor.cmtp", "window": "Меню", "objects": [5, 6, 7],
   "to": "Главное", "dx": 0, "dy": 40}` — объекты окна донора в конец окна `to` со сдвигом (меню, шапка, группа кнопок).
+
+## Новый проект с нуля (cmtp_new)
+
+С нуля файл EasyBuilder не пишется — его всегда даёт основа той же версии EasyBuilder:
+
+1. **Прошлый проект компании** (лучше всего): та же панель, устройство «OPC UA Client», таблица тегов, библиотека
+   картинок, слои окон (Мнемосхема / Индикаторы / Область касания / Интерфейс). `cmtp_new` `{base, out_file, keep}`
+   удаляет рабочие окна, оставляет системные окна EasyBuilder (0-9, клавиатуры 50+, учётные записи, EasyAccess) и
+   стартовое окно 10 — без объектов. `keep` — что оставить из основы (меню, шапку, журнал аварий).
+2. **Шаблон EasyBuilder** `project/template_<ширина>x<высота>.cmtp` из папки EasyBuilder Pro (то, что делает «Файл →
+   Новый»). Шаблоны там старого формата (6.07): откройте его в EasyBuilder и сохраните (ebpro-gui), иначе окна
+   доноров 6.10 в него не встанут. В шаблоне нет устройства OPC UA и таблицы тегов — их добавляют в EasyBuilder
+   (Параметры системы → Устройство), поэтому для проектов на OPC UA берите вариант 1.
+
+Дальше — окна из донора (`cmtp_edit` `import_window` с `number` 11, 12…; кнопки меню на взятые окна
+перепривязываются сами в одной правке), теги (`add_tags`), переходы (`link`), проверка (`cmtp_check`), картинка
+(`cmtp_render`). Объекты, которые безопасно удалить нельзя (ломаные с точками, непрозрачные виджеты), `cmtp_new`
+называет — их убирают в EasyBuilder.
+
+**Проверено в EasyBuilder Pro 6.10.02.421** (под wine, `scripts/ebpro_wine.sh`): основа из проекта cMT на 85 окон →
+удалены 39 рабочих окон и 264 объекта стартового окна → файл открывается; в него взяты 5 окон донора (меню, нории,
+настройки, конвейер) — открывается.
 
 ## Окна и объекты из донора
 
