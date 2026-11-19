@@ -97,4 +97,14 @@
   localStorage.setItem('sysai.project', 'Элеватор Благовещенск');
   localStorage.removeItem('sysai.pane.open');
   if (scene === 'work') addEventListener('load', () => setTimeout(() => document.getElementById('nav-projects').click(), 200));
+  if (scene === 'format') {   // «в каком формате сохранить» — варианты с маленькими лого
+    setTimeout(() => emit('acp:request', { id: 9001, method: 'elicitation/create', params: {
+      sessionId: 's-work',
+      message: 'В каком формате сохранить программу ПЛК?',
+      requestedSchema: { type: 'object', properties: { answer: { type: 'string',
+        enum: ['Machine Expert', 'Haiwell Happy', 'ONI'],
+        'x-icons': { 'Machine Expert': 'img/format-me.svg', 'Haiwell Happy': 'img/format-hawell.svg',
+                     'ONI': 'img/format-oni.svg' } } } },
+    } }), 900);
+  }
 })();

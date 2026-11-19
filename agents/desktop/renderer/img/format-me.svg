@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Machine Expert">
+  <rect x="1" y="1" width="30" height="30" rx="7" fill="#3DCD58"/>
+  <path d="M8 22V10h3.1l2.4 6.2L15.9 10H19v12h-2.6v-7.4L14.2 22h-1.5l-2.2-7.4V22H8z" fill="#fff"/>
+  <path d="M21 22V10h6.6v2.3h-4v2.4h3.5v2.3h-3.5v2.7h4V22H21z" fill="#fff"/>
+</svg>

@@ -248,6 +248,9 @@ body.resizing { cursor: col-resize; } body.resizing iframe { pointer-events: non
 .ask .opts { display: flex; flex-wrap: wrap; gap: 8px; }
 .ask .choice { display: flex; flex-direction: column; gap: 6px; }
 .ask .choice label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--soft); cursor: pointer; }
+.ask .choice label .opt-ico { width: 22px; height: 22px; border-radius: 5px; flex: none; object-fit: contain; }
+.ask .choice label:has(.opt-ico) { padding: 6px 8px; border: 1px solid var(--line); border-radius: 9px; }
+.ask .choice label:has(.opt-ico):hover { border-color: var(--clay); }
 .ask textarea { width: 100%; min-height: 64px; resize: vertical; background: var(--bg2); border: 1px solid var(--line2); border-radius: var(--r-sm); padding: 8px 10px; outline: none; font-size: 13.5px; user-select: text; }
 .ask textarea:focus { border-color: var(--clay-line); }
 .ask.done { border-color: var(--line); box-shadow: none; padding: 8px 14px; } .ask.done .opts, .ask.done .choice, .ask.done textarea { display: none; }
@@ -513,3 +516,9 @@ body.resizing { cursor: col-resize; } body.resizing iframe { pointer-events: non
 .new-chat:hover { background: linear-gradient(180deg, #2c2b26, var(--card2)); }
 .msg.agent .md a { text-underline-offset: 2px; }
 .thread { scrollbar-gutter: stable; }
+
+/* Кому в системе включено «меньше движения» — без анимаций появления: карточки и сообщения видны сразу. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+                           transition-duration: .001ms !important; scroll-behavior: auto !important; }
+}

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plcbuild  # noqa: E402
 import plclink  # noqa: E402
 import plcme  # noqa: E402
+import plcformats  # noqa: E402
 import plcgen  # noqa: E402
 import plcproj  # noqa: E402
 import plcspec  # noqa: E402
@@ -21,7 +22,7 @@ import plcstage  # noqa: E402
 import plcstyle  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 PATH = {"type": "string", "description": r"Проект ПЛК: файл .project Machine Expert, .export или PLCopen .xml из него, "
                                          r"либо папка с файлами .st (plc_export_st), например C:\Projects\line\plc"}
 PROJECT = {"type": "string", "description": r"Файл проекта Machine Expert, например C:\Projects\line\plc\Line.project"}
@@ -200,6 +201,23 @@ TOOLS = [
          "out_file": {"type": "string", "description": r"Куда записать .xml (в разрешённой на запись папке)"},
          "force": {"type": "boolean", "description": "Записать и с ошибками проверки (черновик)"}},
         ("src_dir", "out_file")),
+    _ro("plc_formats", "Форматы файла программы",
+        "В каких форматах программа уходит заказчику: Machine Expert (.project), ONI, Haiwell Happy. У каждого — "
+        "id, название, лого (icon) и готов ли он. По этому списку спрашивают «в каком формате сохранить», показывая "
+        "лого рядом с вариантом. Готовность — проверено на настоящем файле, а не «код написан».",
+        {}, ()),
+    _rw("plc_export", "Сохранить программу в формате",
+        "Записать программу в выбранном формате: format — me, oni или hawell (plc_formats покажет, что готово). "
+        "Для me это тот же сборщик, что plc_project_build: src_dir, template_file, out_file. Формат, который ещё "
+        "не разобран, честно отвечает, чего не хватает, и файла не пишет.",
+        {"format": {"type": "string", "description": "me, oni или hawell"},
+         "src_dir": {"type": "string", "description": r"Папка ST, например C:\Projects\line\_work\st"},
+         "template_file": {"type": "string", "description": r"Шаблон .project с тем же контроллером"},
+         "out_file": {"type": "string", "description": r"Куда записать, например C:\Projects\line\plc\Line.project"},
+         "overwrite": {"type": "boolean", "description": "Заменить существующий файл"},
+         "keep_program": {"type": "boolean", "description": "Оставить программу шаблона"},
+         "io": {"type": "string", "description": "clear | keep — что делать с каналами шаблона"}},
+        ("format",)),
     _rw("plc_project_build", "Проект Machine Expert из папки ST",
         "Записать папку ST в настоящий файл .project — без Machine Expert. С template_file — новый проект: шаблон (файл "
         ".project с тем же контроллером, модулями и библиотеками; годится готовый проект прошлых лет или шаблон из "
@@ -418,6 +436,13 @@ def _call(name, args):
                                      "только .project, в hmi/ — только проект панели, в docs/ — только .docx: исходники, "
                                      "скрипты, таблицы и заметки перенесите в _work/ (st, hmi, docs, gen, notes).")
             return _text(_json(got))
+        if name == "plc_export":
+            fmt = plcformats.get(args.get("format") or "")
+            if not fmt["ready"]:
+                return _text(f"Формат «{fmt['title']}» ещё не разобран: {fmt['note']}. Файл не записан — "
+                             "сначала нужен настоящий файл этого формата, чтобы снять структуру.",
+                             True, {"format": fmt["id"], "ready": False, "note": fmt["note"], "written": False})
+            name = "plc_project_build"      # me: тот же сборщик, что и раньше
         if name == "plc_project_build":
             p = plcbuild.load_dir(args["src_dir"])
             issues = p.check()
@@ -519,6 +544,10 @@ def _call(name, args):
                 with open(args["out_file"], "w", encoding="utf-8", newline="\n") as f:
                     f.write(md)
             return _text(md, data=st)
+        if name == "plc_formats":
+            return _text("\n".join(f"- {f['id']}: {f['title']} — {'готов' if f['ready'] else 'не разобран'}; {f['note']}"
+                                   for f in plcformats.listing()),
+                         data={"formats": plcformats.listing()})
         p = _open(args["path"])
         if name == "plc_info":
             if str(args["path"]).lower().endswith((".project", ".projectarchive")):

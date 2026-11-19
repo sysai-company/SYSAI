@@ -132,3 +132,19 @@ def test_the_server_generates_in_the_saved_style(tmp_path):
     assert got["structuredContent"]["style"]["name"] == "Vendor"
     mechs = (out / "Mechs.st").read_text(encoding="utf-8")
     assert "noria1" in mechs and "Noria1" not in mechs      # имена в манере стиля
+
+
+def test_the_formats_say_what_is_ready_and_what_is_not():
+    got = _server([("plc_formats", {})])[0]
+    fmts = {f["id"]: f for f in got["structuredContent"]["formats"]}
+    assert fmts["me"]["ready"] is True and fmts["me"]["icon"].endswith("format-me.svg")
+    assert fmts["oni"]["ready"] is False and fmts["hawell"]["ready"] is False
+    assert "не разобран" in fmts["oni"]["note"]
+
+
+def test_an_unready_format_writes_nothing_and_says_why(tmp_path):
+    out = tmp_path / "x.oni"
+    got = _server([("plc_export", {"format": "oni", "src_dir": str(tmp_path), "out_file": str(out)})])[0]
+    assert got.get("isError") is True
+    assert "не разобран" in got["content"][0]["text"]
+    assert not out.exists()

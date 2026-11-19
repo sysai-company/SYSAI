@@ -384,9 +384,13 @@ export class Conversation {
     let get;
     if (choices) {
       const name = `q${String(reqId).replace(/\W/g, '')}`;
+      const icons = schema['x-icons'] || schema.icons || {};   // {вариант: путь к маленькому лого}
       const inputs = choices.map((c, i) => {
         const input = h('input', { type: multi ? 'checkbox' : 'radio', name, value: c, checked: !multi && i === 0 });
-        form.append(h('label', {}, input, h('span', { text: c })));
+        const label = h('label', {}, input);
+        if (icons[c]) label.append(h('img', { class: 'opt-ico', src: icons[c], alt: '' }));
+        label.append(h('span', { text: c }));
+        form.append(label);
         return input;
       });
       get = () => (multi ? inputs.filter((i) => i.checked).map((i) => i.value) : (inputs.find((i) => i.checked) || {}).value);
