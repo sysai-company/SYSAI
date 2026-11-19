@@ -304,10 +304,12 @@ def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: in
                 state = fsutil.read_json(home / "state.json", {}) or {}
                 need = failed or time.time() - last_full > FULL_EVERY or state.get("restart_pending")
                 if not need:
+                    before = int(state.get("update_rev") or 0)
                     answer = pulse(home, client, state)
                     fsutil.write_json(home / "state.json", state)
                     need = answer.get("access_rev") != state.get("access_rev") or \
-                        answer.get("hub_rev") != state.get("hub_rev")
+                        answer.get("hub_rev") != state.get("hub_rev") or \
+                        int(state.get("update_rev") or 0) != before  # «обновить сейчас»: a full sync too
                 if need:
                     report = sync_once(home, transport)
                     last_full, failed = time.time(), False
@@ -325,6 +327,8 @@ def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: in
                     state["desktop_try"] = {"sha256": offered["sha256"], "at": time.time()}  # not again before RETRY
                     fsutil.write_json(home / "state.json", state)
                     desktop.install_quietly(home, client, offered)  # minutes at most, once per build
+                elif not got and state.pop("update_force", None) is not None:
+                    fsutil.write_json(home / "state.json", state)  # nothing to install: the request is spent
             except (SyncError, ApiError, OSError) as exc:
                 failed = True
                 log.warning("%s", exc)

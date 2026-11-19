@@ -480,6 +480,29 @@ def test_the_loop_pulses_and_resyncs_when_the_rules_change(pc):
     assert not (pc["home"] / "stop").exists() and not (pc["home"] / "run.lock").exists()
 
 
+def test_update_now_also_resyncs_the_hub_and_the_rules(pc, client, monkeypatch):
+    """«Обновить сейчас» из SYSAI — это не только новая версия: компьютер заново сверяет доступы и хаб."""
+    core.sync_once(pc["home"], transport=pc["send"])
+    calls = []
+    real = core.sync_once
+
+    def counting(home, transport=None):
+        calls.append(1)
+        return real(home, transport=transport)
+
+    monkeypatch.setattr(core, "sync_once", counting)
+    naps = []
+
+    def nap(_):
+        if not naps:
+            agents.request_update([pc["agent_id"]], by="test")
+        naps.append(1)
+    assert core.run(pc["home"], every=2, transport=pc["send"], cycles=2, sleep=nap) == 0
+    assert len(calls) == 2, "первый цикл — полная синхронизация, второй — по «обновить сейчас»"
+    state = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))
+    assert state["update_rev"] == 1
+
+
 def test_the_installer_and_the_wheel(client, net_on):
     r = client.get("/agents/api/install.ps1")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain") and "utf-8" in r.headers["content-type"]
