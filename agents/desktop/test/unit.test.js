@@ -99,6 +99,53 @@ test('the Hermes profile folder as the synchronizer finds it', () => {
 });
 
 // ------------------------------------------------------------------------------------------------ ACP
+test('session restore is shared by selection and send, and failed loads can retry', async () => {
+  const { ensureLoaded } = await import('../renderer/js/session-load.mjs');
+  const conv = { loaded: false, draft: false, loadPromise: null };
+  let calls = 0;
+  let release;
+  const load = () => {
+    calls += 1;
+    return new Promise((resolve) => { release = resolve; });
+  };
+
+  const selected = ensureLoaded(conv, load);
+  const sent = ensureLoaded(conv, load);
+  assert.equal(selected, sent, 'both callers await the same session/load request');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  release(true);
+  assert.equal(await selected, true);
+  assert.equal(conv.loadPromise, null);
+
+  const broken = { loaded: false, draft: false, loadPromise: null };
+  let attempts = 0;
+  assert.equal(await ensureLoaded(broken, async () => { attempts += 1; throw new Error('load failed'); }), false);
+  assert.equal(broken.loadPromise, null);
+  assert.equal(await ensureLoaded(broken, async () => { attempts += 1; broken.loaded = true; return true; }), true);
+  assert.equal(attempts, 2, 'a failed restore does not poison the next retry');
+});
+
+test('only one send can reserve a conversation while async preparation is pending', async () => {
+  const { reserveSend, releaseSend } = await import('../renderer/js/send-lock.mjs');
+  const conv = { running: false, sending: false };
+  let finish;
+  const first = (async () => {
+    if (!reserveSend(conv)) return false;
+    await new Promise((resolve) => { finish = resolve; });
+    releaseSend(conv);
+    return true;
+  })();
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reserveSend(conv), false, 'a second send cannot enter while the first is awaiting');
+  finish();
+  assert.equal(await first, true);
+  assert.equal(reserveSend(conv), true, 'a new send is allowed after the first reservation is released');
+  releaseSend(conv);
+  assert.equal(reserveSend({ running: true, sending: false }), false, 'an already-running conversation stays blocked');
+});
+
 test('hermes.cmd goes through cmd.exe with the arguments quoted', () => {
   const line = commandLine('C:\\Program Files\\hermes\\hermes.cmd', ['-p', 'ivan', 'acp'], 'win32');
   assert.equal(line.verbatim, true);
