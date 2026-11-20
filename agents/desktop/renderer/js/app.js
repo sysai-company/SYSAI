@@ -1240,7 +1240,11 @@ async function main() {
   api.win.onShow(({ path, line }) => openPath(path, line));
   api.win.onNotice(({ text, kind }) => {
     if (kind === 'update') {
-      toast(text, 'update', 0, { label: 'Перезапустить', onClick: () => api.win.relaunch().catch(() => {}) });
+      toast(text, 'update', 0, { label: 'Перезапустить', onClick: () => api.win.relaunch().catch((e) => {
+        // Новая копия не открылась — говорим, что делать: сборка уже установлена, окно подхватит её при следующем
+        // запуске. Молчание здесь и есть то «перезапустилось и ничего», на которое жалуются.
+        toast(`${e.message}. Новая версия уже установлена — закройте окно и откройте «Агент SYSAI».`, 'err', 20000);
+      }) });
       return;
     }
     toast(text, kind || 'info', 15000);

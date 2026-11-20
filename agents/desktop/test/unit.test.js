@@ -1645,3 +1645,74 @@ test('restarting after an update opens the installed build, not the copy the win
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('перезапуск: старая копия уходит только когда новая открыла окно', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sysai-rel-'));
+  const home = path.join(root, 'SYSAI');
+  const ready = relaunchLib.readyPath(home);
+  assert.equal(ready, path.join(home, 'desktop', 'relaunch.json'));
+
+  try {
+    // 1. Новая копия пишет файл (это делает markReady в ready-to-show) — старая видит окно и уходит
+    const notes = [];
+    const child = new (require('node:events').EventEmitter)();
+    child.pid = 4242;
+    const waiting = relaunchLib.waitReady(ready, child, 3000, 40);
+    setTimeout(() => {
+      fs.mkdirSync(path.dirname(ready), { recursive: true });
+      fs.writeFileSync(ready, JSON.stringify({ pid: 4242, version: '0.9.2' }));
+    }, 80);
+    const ok = await waiting;
+    assert.equal(ok.ok, true, 'файл появился — старая копия может закрываться');
+    assert.equal(ok.got.pid, 4242);
+    notes.push(ok.got.version);
+    assert.deepEqual(notes, ['0.9.2']);
+
+    // 2. Новая копия закрылась, окна нет — старая НЕ закрывается и говорит почему
+    fs.rmSync(ready, { force: true });
+    const dead = new (require('node:events').EventEmitter)();
+    dead.pid = 4243;
+    const failing = relaunchLib.waitReady(ready, dead, 3000, 40);
+    setTimeout(() => dead.emit('exit', 1), 60);
+    const bad = await failing;
+    assert.equal(bad.ok, false, 'окно не открылось — остаёмся жить');
+    assert.match(bad.error, /закрылась \(код 1\)/);
+
+    // 3. Процесс вообще не запустился — тоже ошибка, а не вечное ожидание
+    const broken = new (require('node:events').EventEmitter)();
+    const never = relaunchLib.waitReady(ready, broken, 3000, 40);
+    setTimeout(() => broken.emit('error', new Error('ENOENT electron.exe')), 40);
+    const err = await never;
+    assert.equal(err.ok, false);
+    assert.match(err.error, /ENOENT/);
+
+    // 4. Молчание дольше срока — честный отказ по времени
+    const silent = await relaunchLib.waitReady(ready, null, 200, 40);
+    assert.equal(silent.ok, false);
+    assert.match(silent.error, /не открыла окно за/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('перезапуск: файл «окно открылось» пишет только новая копия и только по просьбе', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sysai-rel-'));
+  const home = path.join(root, 'SYSAI');
+  const keep = process.env.SYSAI_RELAUNCH_READY;
+  try {
+    delete process.env.SYSAI_RELAUNCH_READY;
+    assert.equal(relaunchLib.markReady(), false, 'обычный запуск ничего не пишет');
+
+    const ready = relaunchLib.readyPath(home);
+    process.env.SYSAI_RELAUNCH_READY = ready;
+    assert.equal(relaunchLib.markReady(), true);
+    assert.equal(process.env.SYSAI_RELAUNCH_READY, undefined, 'просьба одноразовая');
+    const got = JSON.parse(fs.readFileSync(ready, 'utf8'));
+    assert.equal(got.pid, process.pid);
+    assert.equal(got.version, JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version);
+  } finally {
+    if (keep === undefined) delete process.env.SYSAI_RELAUNCH_READY;
+    else process.env.SYSAI_RELAUNCH_READY = keep;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -63,6 +63,7 @@ const pending = new Map(); // questions of the agent waiting for the person: id 
 const queue = []; // what waits for the page: [channel, payload]
 const swarmText = new Map(); // sessionId → the text this swarm cell has produced
 let swarm = null; // the swarm running now (lib/swarm.js), one at a time: it eats the whole machine
+let relaunchLast = null; // чем кончился последний перезапуск — для «Ещё» и app:info
 let swarmBeat = 0;
 let swarmCwd = ''; // папка роя: проект, по которому проверяют, — агент должен её видеть
 
@@ -197,7 +198,11 @@ function createWindow() {
   });
   if (saved.maximized) win.maximize();
   const wc = win.webContents;
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.show();
+    // Открылись вместо прежней копии — говорим ей об этом: она ждёт файл и только потом закрывается.
+    if (relaunch.markReady()) log(`окно открылось вместо прежнего (pid ${process.pid}, ${VERSION})`);
+  });
   win.on('focus', () => win.flashFrame(false));
   win.on('close', () => {
     try {
@@ -853,26 +858,41 @@ function ipc() {
     return { installed: got ? { version: got.version, app: got.app } : null,
       running: app.getAppPath(), version: VERSION, electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform,
       home: HOME, agent: cfg.agent, profile: cfg.profile, server: cfg.server, person: cfg.person, connected: cfg.connected,
-      hermes: hermesPath(cfg), homedir: os.homedir() };
+      hermes: hermesPath(cfg), homedir: os.homedir(), relaunch_last: relaunchLast };
   });
   // Перезапуск — в установленную сборку, а не в ту программу, из которой окно сейчас работает: после обновления
   // они разные, и app.relaunch() открывал старую («перезапустил — ничего не изменилось»).
-  handle('app:relaunch', () => {
+  handle('app:relaunch', async () => {
     const into = relaunch.next(HOME, app.getAppPath());
-    if (into) {
-      try {
-        const run = relaunch.command(into);
-        log(`перезапускаю окно в установленную сборку ${into.version || into.app}`);
-        spawn(run.exe, run.args, { cwd: run.cwd, detached: true, stdio: 'ignore', env: process.env }).unref();
-        app.exit(0);
-        return { into: into.version || into.app, ok: true };
-      } catch (err) {
-        log('новая сборка не запустилась, перезапускаюсь как есть:', err);
-      }
+    const run = into ? relaunch.command(into) : { exe: process.execPath, args: [app.getAppPath()], cwd: app.getAppPath() };
+    const ready = relaunch.readyPath(HOME);
+    try { fs.rmSync(ready, { force: true }); } catch { /* файла не было */ }
+    // Замок единственного экземпляра отпускаем ДО запуска новой копии: иначе новая проигрывает гонку за замок и
+    // тихо выходит (окно мигает секунду и пропадает), а старая к этому моменту уже закрылась — окон не остаётся.
+    try { app.releaseSingleInstanceLock(); } catch { /* Electron без такого API */ }
+    let child;
+    try {
+      child = spawn(run.exe, run.args, {
+        cwd: run.cwd, detached: true, stdio: 'ignore',
+        env: { ...process.env, SYSAI_RELAUNCH_READY: ready },
+      });
+      child.unref();
+    } catch (err) {
+      relaunchLast = { at: new Date().toISOString(), error: err.message || String(err) };
+      log('перезапуск не удался:', relaunchLast.error);
+      throw new Error(`не удалось запустить ${run.exe}: ${relaunchLast.error}`);
     }
-    app.relaunch();
-    app.exit(0);
-    return { into: '', ok: true };
+    log(`перезапуск: ${run.exe} ${run.args.join(' ')} (pid ${child.pid})`);
+    const left = await relaunch.waitReady(ready, child);
+    if (!left.ok) {
+      relaunchLast = { at: new Date().toISOString(), error: left.error };
+      log('новая копия не открылась:', left.error);
+      throw new Error(`новая копия не открылась: ${left.error}`);
+    }
+    relaunchLast = { at: new Date().toISOString(), into: left.got.version || (into && into.version) || '' };
+    log(`новая копия открылась (pid ${left.got.pid}, версия ${left.got.version || '?'}), закрываюсь`);
+    setTimeout(() => app.exit(0), 200);
+    return { into: left.got.version || '', ok: true };
   });
   handle('acp:state', () => acpInfo);
   handle('acp:restart', () => restartAcp());
