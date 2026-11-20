@@ -430,7 +430,25 @@ def _kinds(objs):
     return dict(sorted(out.items(), key=lambda kv: -kv[1]))
 
 
+def _missing(name, args):
+    """Что не передали. Агент должен получить «нужен параметр: path», а не KeyError из глубины: по такому ответу
+    он исправляется сам, по трейсбеку — нет. Схема инструмента — единственный источник правды о полях."""
+    tool = next((t for t in TOOLS if t.get("name") == name), None)
+    if not tool:
+        return ""
+    schema = tool.get("inputSchema") or {}
+    need = [k for k in schema.get("required") or [] if args.get(k) in (None, "")]
+    if not need:
+        return ""
+    props = schema.get("properties") or {}
+    said = "; ".join(f"{k} — {props.get(k, {}).get('description', '')}".rstrip(" —") for k in need)
+    return f"инструменту {name} нужны параметры: {said}"
+
+
 def _call(name, args):
+    said = _missing(name, args)
+    if said:
+        return _text(said, True)
     try:
         if name == "cmtp_info":
             p = _load(args["path"])

@@ -146,7 +146,25 @@ def _notes(out: dict) -> list:
     return [f"Замечание: {w}" for w in out.get("warnings") or []]
 
 
+def _missing(name, args):
+    """Что не передали. Агент должен получить «нужны параметры: path — Полный путь…», а не «не хватает поля»:
+    схема инструмента уже говорит, что это за поле, — скажем это агенту, чтобы он исправился с первого раза."""
+    tool = next((t for t in TOOLS if t.get("name") == name), None)
+    if not tool:
+        return ""
+    schema = tool.get("inputSchema") or {}
+    need = [k for k in schema.get("required") or [] if args.get(k) in (None, "")]
+    if not need:
+        return ""
+    props = schema.get("properties") or {}
+    said = "; ".join(f"{k} — {props.get(k, {}).get('description', '')}".rstrip(" —") for k in need)
+    return f"инструменту {name} нужны параметры: {said}"
+
+
 def _call(name, args):
+    said = _missing(name, args)
+    if said:
+        return _text(said, True)
     try:
         if name == "me_find":
             found = mehost.installs()

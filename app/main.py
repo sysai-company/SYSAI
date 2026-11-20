@@ -289,9 +289,18 @@ STARTED = time.time()
 @app.get("/health")
 async def health():
     """No database and no thread pool: the platform's port and health checks must pass even while Neon wakes up or
-    Telegram is slow. `commit` says which version really runs (Render sets RENDER_GIT_COMMIT)."""
-    return {"ok": True, "commit": (os.getenv("RENDER_GIT_COMMIT") or "")[:7], "uptime_s": int(time.time() - STARTED),
-            "telegram_account": userbot.ready()}
+    Telegram is slow. `commit` says which version really runs (Render sets RENDER_GIT_COMMIT). `sync` and `build` say
+    which synchronizer this deployment gives out — one request tells whether «обновление не приходит» because the
+    service runs old code: open /health and compare with the repository."""
+    out = {"ok": True, "commit": (os.getenv("RENDER_GIT_COMMIT") or "")[:7], "uptime_s": int(time.time() - STARTED),
+           "telegram_account": userbot.ready()}
+    try:  # the wheel is built from agents/sync on the first request; a broken build must not take /health down
+        from .net import installer
+        out["sync"] = installer.version()
+        out["build"] = installer.build()[:12]
+    except Exception:  # noqa: BLE001 — health check answers even when the synchronizer sources are unreadable
+        out["sync"] = ""
+    return out
 
 
 @app.get("/health/details")

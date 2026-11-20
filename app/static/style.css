@@ -952,24 +952,64 @@ body.org-map-page { height:100dvh; min-height:100dvh; overflow:hidden; }
 .ref-runs { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
 
 /* ---------- светлая тема: бумага, а не прожектор ---------- */
-/* Две темы, обе приятные глазу: тёмная — тёплый уголь, светлая — тёплая бумага. Не белый лист: он выжигает,
-   поэтому фон #f4f1e9, карточки почти сливаются, а акценты затемнены, чтобы текст на них читался. */
+/* Две темы, обе приятные глазу. Тёмная — тёплый уголь. Светлая — бумага с холодком: белый лист выжигает,
+   а крем и хаки дают грязно-жёлтый налёт (первый заход так и выглядел). Фон чуть холоднее карточек, акценты
+   затемнены до контраста 5:1 на белом, тени почти воздушные — глубина от границы и цвета, не от черноты. */
 html[data-theme="light"] {
-  --bg: #f4f1e9; --bg2: #fbf9f3; --card: #fffdf7; --card2: #f1ece1;
-  --line: #e3ddcd; --line2: #d0c9b6;
-  --text: #23201a; --soft: #4f493b; --muted: #8b8471;
-  --clay: #b0554b; --clay2: #c2685c; --clay-bg: rgba(176,85,75,.10);
-  --sblue: #47679f; --sblue-bg: rgba(71,103,159,.11);
-  --green: #4c8352; --amber: #a87a2c; --red: #a8463a; --blue: #47679f;
+  --bg: #f4f5f5; --bg2: #fafbfb; --card: #ffffff; --card2: #f1f3f3;
+  --line: #e4e7e6; --line2: #ced3d1;
+  --text: #141719; --soft: #41474b; --muted: #6b7276;
+  --clay: #a8402b; --clay2: #c1573d; --clay-bg: rgba(168,64,43,.09);
+  --sblue: #30577f; --sblue-bg: rgba(48,87,127,.10);
+  --green: #22684a; --amber: #8a5d09; --red: #a52e21; --blue: #30577f;
   color-scheme: light;
 }
-html[data-theme="light"] .aura i { opacity: .14; }
-html[data-theme="light"] .aura.soft i { opacity: .08; }
-html[data-theme="light"] .aura::after { opacity: .16; }
-html[data-theme="light"] ::selection { background: var(--clay); color: #fffdf7; }
+html[data-theme="light"] .aura i { opacity: .055; }
+html[data-theme="light"] .aura i:nth-child(1) { background: radial-gradient(circle, #9db8c9 0%, transparent 62%); }
+html[data-theme="light"] .aura i:nth-child(2) { background: radial-gradient(circle, #d8c3a6 0%, transparent 64%); }
+html[data-theme="light"] .aura i:nth-child(3) { opacity: .03; background: radial-gradient(circle, #b9c9bd 0%, transparent 60%); }
+html[data-theme="light"] .aura.soft i { opacity: .04; }
+html[data-theme="light"] .aura::after { opacity: .10; }
+html[data-theme="light"] ::selection { background: var(--clay); color: #fff; }
 html[data-theme="light"] input[type=date], html[data-theme="light"] select { color-scheme: light; }
-html[data-theme="light"] .net-diff .add, html[data-theme="light"] .net-ok { color: #2f6b3a; }
-html[data-theme="light"] .net-diff .del, html[data-theme="light"] .net-err { color: #a8463a; }
+html[data-theme="light"] .net-diff .add, html[data-theme="light"] .net-ok { color: var(--green); }
+html[data-theme="light"] .net-diff .del, html[data-theme="light"] .net-err { color: var(--red); }
+
+/* глубина: на белом тень не должна быть чёрной кляксой */
+html[data-theme="light"] .card { box-shadow: 0 1px 2px rgba(20,23,25,.04), 0 14px 30px -26px rgba(20,23,25,.35); }
+html[data-theme="light"] .note-pill { background: rgba(255,255,255,.82); box-shadow: 0 1px 2px rgba(20,23,25,.05); }
+html[data-theme="light"] .progress-board-report { background: linear-gradient(135deg, #fff6f3, var(--card));
+  border-color: rgba(168,64,43,.28); box-shadow: 0 10px 28px -22px rgba(20,23,25,.4); }
+html[data-theme="light"] .progress-board-person { background: var(--card); box-shadow: 0 5px 16px -14px rgba(20,23,25,.35); }
+html[data-theme="light"] .org-map-root { background: linear-gradient(135deg, rgba(168,64,43,.055), rgba(48,87,127,.05)), #fff;
+  box-shadow: 0 12px 28px -22px rgba(20,23,25,.4); }
+html[data-theme="light"] .org-map-node { background: var(--card); }
+html[data-theme="light"] .org-map-person-node:hover { background: #f7f9f8; box-shadow: 0 8px 18px -16px rgba(20,23,25,.38); }
+html[data-theme="light"] .org-map-person-node.is-reviewer { background: linear-gradient(120deg, rgba(165,46,33,.07), #fff); }
+html[data-theme="light"] .org-map-person-node.is-director { background: linear-gradient(120deg, rgba(138,93,9,.08), #fff); }
+html[data-theme="light"] .org-legend-dot.clay, html[data-theme="light"] .org-legend-dot.blue { box-shadow: none; }
+html[data-theme="light"] .org-map-person-node:hover { border-color: rgba(48,87,127,.55); }
+
+/* сети: пастель тёмной темы на белом не читается — те же смыслы, но плотные */
+html[data-theme="light"] .mdl-mid::before { background: #30577f; }
+html[data-theme="light"] .mdl-cheap::before { background: #22684a; }
+html[data-theme="light"] .mdl-vision::before { background: #8a5d09; }
+html[data-theme="light"] .mdl-auto::before { background: linear-gradient(180deg, #a8402b, #30577f); }
+html[data-theme="light"] .mdl-jev.warn { color: #8a5d09; }
+html[data-theme="light"] .pill.amber { background: rgba(138,93,9,.11); color: #7a5208; }
+html[data-theme="light"] .pill.green { background: rgba(34,104,74,.10); color: #1d5b40; }
+html[data-theme="light"] .pill.red { background: rgba(165,46,33,.10); color: #93301f; }
+html[data-theme="light"] .pill.blue { background: rgba(48,87,127,.10); color: #2a4c70; }
+html[data-theme="light"] .code, html[data-theme="light"] pre, html[data-theme="light"] code { background: #f4f6f5; }
+html[data-theme="light"] .btn { box-shadow: 0 1px 2px rgba(20,23,25,.05); }
+html[data-theme="light"] .btn.primary { color: #fff; }
+html[data-theme="light"] .btn.danger { color: #fff; }
+/* предупреждающая полоса: в светлой — нейтральная бумага с янтарной гранью, не жёлтая заливка */
+html[data-theme="light"] .banner { background: #fbfbfa; border-color: var(--line); border-left: 3px solid var(--amber);
+  color: var(--soft); }
+html[data-theme="light"] .banner b { color: var(--text); }
+html[data-theme="light"] .card.note { background: #fbfbfa; }
+html[data-theme="light"] .card.note.warn { border-left-color: var(--amber); }
 
 /* ---------- свои галочки и переключатели: не стоковый квадрат браузера ---------- */
 input[type=checkbox], input[type=radio] { appearance: none; -webkit-appearance: none; margin: 0; flex: none;

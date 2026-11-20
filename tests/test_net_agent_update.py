@@ -94,6 +94,20 @@ def test_the_server_and_the_computer_count_the_build_the_same_way(client, net_ag
     assert installer.build() == before
 
 
+def test_the_agents_page_shows_the_version_the_computer_reports(client, net_agent):
+    """Ключ версии у синхронизатора — «sysai-agent» (core.versions), а страница читала «sync»: колонка «Версии»
+    была пустой у всех, а метка «есть обновление» не появлялась никогда. Теперь видно и версию, и отставание."""
+    client.post("/agents/api/heartbeat", headers=net_agent["headers"],
+                json={"versions": {"sysai-agent": "0.1.0", "python": "3.12.7"}})
+    page = client.get("/agents").text
+    assert "синхр. 0.1.0" in page
+    assert "обновляется" in page                      # SYSAI отдаёт новее — компьютер догонит сам
+    client.post("/agents/api/heartbeat", headers=net_agent["headers"],
+                json={"versions": {"sysai-agent": installer.version()}})
+    page = client.get("/agents").text
+    assert f"синхр. {installer.version()}" in page and "обновляется</span>" not in page
+
+
 # --------------------------------------------------------------------------------------------- «обновить сейчас»
 def test_update_all_bumps_the_revision_and_the_pulse_carries_it(client, net_agent):
     assert client.post("/agents/api/heartbeat", headers=net_agent["headers"], json={}).json()["update_rev"] == 0

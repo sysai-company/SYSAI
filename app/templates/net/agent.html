@@ -35,7 +35,9 @@
 <section class="card"><h2>Компьютер</h2>
   <dl class="net-kv">
     <dt>Компьютер</dt><dd>{{ a.host or '—' }}</dd>
-    <dt>Версии</dt><dd>{% for k, v in a.versions.items() %}{{ k }} {{ v }}{{ ', ' if not loop.last }}{% else %}—{% endfor %}{% set sv = (a.versions or {}).get('sync') %}{% if sv and sv != sync_version %}<div class="small warn">на сервере синхронизатор {{ sync_version }}: получите код и запустите строку установки на ПК снова</div>{% endif %}{% if hermes_note %}<div class="small warn">{{ hermes_note }}</div>{% endif %}</dd>
+    <dt>Версии</dt><dd>{% for k, v in a.versions.items() %}{{ k }} {{ v }}{{ ', ' if not loop.last }}{% else %}—{% endfor %}{% set vs = a.versions or {} %}{% set sv = vs.get('sysai-agent') or vs.get('sync') %}{% set dv = vs.get('desktop') %}
+      {% if sv and sv != sync_version %}<div class="small warn">на компьютере синхронизатор {{ sv }}, SYSAI отдаёт {{ sync_version }}: обновится сам при следующем пульсе (журнал обновления — <code>logs\update.log</code> на ПК). Если через сутки версия та же — «Обновить сейчас» ниже, а если и это не помогло, на ПК файлы держит работающая задача Hermes: обновление повторится.</div>{% elif not sv %}<div class="small muted">компьютер ещё не сообщал версию синхронизатора</div>{% endif %}
+      {% if dv and dv != desktop_version %}<div class="small warn">окно агента {{ dv }}, SYSAI отдаёт {{ desktop_version }}: поставится само</div>{% endif %}{% if hermes_note %}<div class="small warn">{{ hermes_note }}</div>{% endif %}</dd>
     <dt>Из хаба на ПК</dt><dd>{% set hs = (agent.hub_state or {}).get('skills') or {} %}{% set ht = (agent.hub_state or {}).get('tools') or {} %}навыков: {{ hs|length }} · инструментов: {{ ht|length }}{% set cf = (agent.hub_state or {}).get('conflicts') or [] %}{% if cf %} · <span class="net-err">конфликт имён: {{ cf|join(', ') }}</span>{% endif %}</dd>
     <dt>Последняя ошибка</dt><dd class="{{ 'net-err' if a.last_error }}">{{ a.last_error or '—' }}</dd>
   </dl>

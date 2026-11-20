@@ -25,7 +25,7 @@
   {% if not agents %}<p class="muted">Агентов пока нет. Создайте агента и подключите компьютер одноразовым кодом.</p>{% else %}
   <form method="post" action="/agents/update" id="agents-update">
   <div class="ag-toolbar">
-    <span class="small muted">Версия на сервере: синхронизатор <b>{{ sync_version }}</b> · окно <b>{{ desktop_version }}</b></span>
+    <span class="small muted">SYSAI отдаёт: синхронизатор <b>{{ sync_version }}</b> (сборка <code>{{ sync_build }}</code>) · окно <b>{{ desktop_version }}</b>{% if server_commit %} · развёрнут из коммита <code>{{ server_commit }}</code>{% endif %}</span>
     <span class="ag-toolbar-actions">
       <button class="btn sm" name="scope" value="picked" title="Обновить отмеченных агентов до последней версии">Обновить выбранных</button>
       <button class="btn sm primary" name="scope" value="all" title="Обновить всех агентов сети до последней версии">Обновить всех</button>
@@ -35,15 +35,16 @@
     <thead><tr><th class="ag-check"><input type="checkbox" id="ag-all" aria-label="Отметить всех"></th><th>Агент</th><th>Человек</th><th>Статус</th><th>Компьютер</th><th>Версии</th><th>Доступы</th><th>На связи</th><th>Сегодня</th></tr></thead>
     <tbody>
     {% for a in agents %}
-    {% set sv = (a.versions or {}).get('sync') %}{% set dv = (a.versions or {}).get('desktop') %}
-    {% set stale = (sv and sv != sync_version) or (dv and dv != desktop_version) %}
+    {# Синхронизатор называет себя «sysai-agent» (core.versions); «sync» — старые сборки, читаем оба ключа. #}
+    {% set vs = a.versions or {} %}{% set sv = vs.get('sysai-agent') or vs.get('sync') %}{% set dv = vs.get('desktop') %}
+    {% set old = (sv and sv != sync_version) or (dv and dv != desktop_version) %}
     <tr onclick="location.href='/agents/{{ a.id }}'">
       <td class="ag-check" onclick="event.stopPropagation()"><input type="checkbox" name="ids" value="{{ a.id }}" aria-label="Отметить {{ a.name }}"></td>
       <td><a href="/agents/{{ a.id }}"><b>{{ a.name }}</b></a><div class="small muted">{{ a.harness }}{% if a.department %} · {{ a.department }}{% endif %}</div></td>
       <td>{{ a.user_name }}<div class="small muted">{{ a.user }}</div></td>
       <td><span class="pill {{ a.status_ru[1] }}">{{ a.status_ru[0] }}</span>{% if a.last_error %}<div class="small net-err" title="{{ a.last_error }}">есть ошибка</div>{% endif %}</td>
       <td>{{ a.host or '—' }}</td>
-      <td class="small">{% if sv or dv %}<div>синхр. {{ sv or '—' }}</div><div>окно {{ dv or '—' }}</div>{% if stale %}<span class="pill amber">есть обновление</span>{% endif %}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="small">{% if sv or dv %}<div {% if sv and sv != sync_version %}class="net-err" title="SYSAI отдаёт {{ sync_version }}"{% endif %}>синхр. {{ sv or '—' }}</div><div {% if dv and dv != desktop_version %}class="net-err" title="SYSAI отдаёт {{ desktop_version }}"{% endif %}>окно {{ dv or '—' }}</div>{% if old %}<span class="pill amber" title="последняя версия — {{ sync_version }}">обновляется</span>{% endif %}{% else %}<span class="muted">не сообщает</span>{% endif %}</td>
       <td>{{ a.profile }}<div class="small {{ 'net-ok' if a.applied_rev == a.rev else 'muted' }}">{% if a.applied_rev == a.rev %}применены{% elif a.applied_rev %}ждут применения{% else %}ещё не применялись{% endif %}</div></td>
       <td class="small">{{ net_when(a.last_seen_at) }}</td>
       <td class="small">${{ '%.2f'|format(spend.get(a.id, 0)) }}</td>

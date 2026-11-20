@@ -14,6 +14,21 @@ import { reserveSend, releaseSend } from './send-lock.mjs';
 
 const api = window.sysai;
 const $ = (id) => document.getElementById(id);
+const THEME_KEY = 'sysai.theme';
+
+// Тема окна: тёмная — «кабинет вечером», светлая — «кабинет днём». Выбор помнится; в первый раз — как в системе.
+function themeChoice() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  const meta = document.querySelector('meta[name="color-scheme"]');
+  if (meta) meta.setAttribute('content', theme);
+}
+applyTheme(themeChoice());
 const BG = '#121210';
 const BG2 = '#181816';
 
@@ -777,6 +792,11 @@ function drawStatus() {
     items.push(h('span', { class: 'item', title: `Сервер SYSAI: ${S.info.server}` }, icon('cloud', 'sm'), h('span', { text: host })));
   }
   items.push(h('span', { class: 'item', title: 'Версия окна' }, h('span', { text: `окно ${S.info.version || ''}` })));
+  const dark = document.documentElement.dataset.theme !== 'light';
+  const tog = h('button', { class: 'item theme-tog', title: dark ? 'Светлая тема' : 'Тёмная тема',
+    'aria-label': dark ? 'Включить светлую тему' : 'Включить тёмную тему' }, icon(dark ? 'sun' : 'moon', 'sm'));
+  tog.addEventListener('click', () => { applyTheme(dark ? 'light' : 'dark'); drawStatus(); });
+  items.push(tog);
   bar.replaceChildren(...items);
 }
 

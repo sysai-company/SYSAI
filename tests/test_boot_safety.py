@@ -35,6 +35,15 @@ def test_health_names_the_running_commit(client, monkeypatch):
     assert client.get("/health").json()["commit"] == "a8e40e8"
 
 
+def test_health_says_which_synchronizer_this_deployment_gives_out(client):
+    """Одна ссылка отвечает на «обновление не приходит»: какая сборка синхронизатора лежит на сервисе и из какого
+    коммита он развёрнут. Если здесь старый номер — обновляться некуда, и дело не в компьютерах."""
+    from app.net import installer
+    body = client.get("/health").json()
+    assert body["sync"] == installer.version()
+    assert body["build"] == installer.build()[:12] and len(body["build"]) == 12
+
+
 def test_health_details_keeps_the_old_flags(client):
     body = client.get("/health/details").json()
     assert {"llm", "telegram", "telegram_account", "database"} <= set(body)

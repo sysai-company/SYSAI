@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import json
+import os
 import weakref
 from urllib.parse import quote
 
@@ -147,7 +148,9 @@ def agents_page(request: Request, msg: str = "", error: str = ""):
     return _page(request, "net/agents.html", agents=agents.listing(me), boss=boss, msg=msg, error=error,
                  spend=spend, profiles=access.profiles() if boss else [], harnesses=agents.HARNESSES,
                  can_create=boss or len(agents.listing(me)) < MAX_OWN_AGENTS,
-                 sync_version=installer.version(), desktop_version=desktop.version(), **_choices())
+                 sync_version=installer.version(), desktop_version=desktop.version(),
+                 sync_build=installer.build()[:12], server_commit=(os.getenv("RENDER_GIT_COMMIT") or "")[:7],
+                 **_choices())
 
 
 # ============================================================================= pages: spend
