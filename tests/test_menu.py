@@ -13,6 +13,11 @@ def _groups(html: str) -> set:
     return {part.split('"')[0] for part in html.split('data-nav-group="')[1:]}
 
 
+def _html(html: str) -> str:
+    """The <html …> tag itself: тема и ширина меню живут на нём, а не в теле страницы."""
+    return html.split("<html", 1)[1].split(">", 1)[0]
+
+
 def test_groups_fold_and_the_choice_is_remembered(client):
     html = client.get("/app").text
     assert _groups(html) == {"work", "company", "ai", "admin"} and _opened(html) == {"work"}  # the network is off
@@ -20,9 +25,12 @@ def test_groups_fold_and_the_choice_is_remembered(client):
     assert _opened(client.get("/employees").text) == {"work", "company"}  # the group of the open page
     client.cookies.set("sysai_nav", "ai.admin")
     assert _opened(client.get("/app").text) == {"ai", "admin"}
-    assert '<html lang="ru" class="">' in client.get("/app").text
+    assert 'class="side-mini"' not in _html(client.get("/app").text)  # полное меню, не полоса иконок
+    assert 'data-theme="dark"' in _html(client.get("/app").text)  # тема стоит сервером, до стилей
     client.cookies.set("sysai_side", "mini")
-    assert '<html lang="ru" class="side-mini">' in client.get("/app").text  # the narrow rail of icons
+    assert 'class="side-mini"' in _html(client.get("/app").text)  # the narrow rail of icons
+    client.cookies.set("sysai_theme", "light")
+    assert 'data-theme="light"' in _html(client.get("/app").text)  # выбранная тема помнится на сервере
     assert "/static/sidebar.js" in client.get("/app").text
 
 
