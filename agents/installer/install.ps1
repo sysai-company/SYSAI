@@ -15,6 +15,8 @@ $Server = '__SYSAI_SERVER__'
 $Wheel = '__SYSAI_WHEEL__'
 $Version = '__SYSAI_VERSION__'
 $SysaiHome = Join-Path $env:LOCALAPPDATA 'SYSAI'
+# Переустановка на уже подключённом компьютере не требует нового кода: подключение (agent.json) остаётся своё.
+$Joined = Test-Path (Join-Path $SysaiHome 'agent.json')
 
 # Шаги нумеруются: окно установки показывает их списком с галочками, а не одной бегущей строкой.
 $script:Step = 0
@@ -42,9 +44,9 @@ try {
     if ($env:OS -ne 'Windows_NT') { Stop-Install 'установщик — для Windows' }
     $Code = $env:SYSAI_CODE
     Remove-Item Env:SYSAI_CODE -ErrorAction SilentlyContinue
-    if (-not $Code) { $Code = Read-Host 'Код подключения со страницы агента в SYSAI' }
+    if (-not $Code -and -not $Joined) { $Code = Read-Host 'Код подключения со страницы агента в SYSAI' }
     $Code = "$Code".Trim()
-    if (-not $Code) { Stop-Install 'нет кода подключения: получите его на странице агента в SYSAI' }
+    if (-not $Code -and -not $Joined) { Stop-Install 'нет кода подключения: получите его на странице агента в SYSAI' }
     Say "сервер $Server, синхронизатор $Version"
 
     # 1. uv: ставит Python и синхронизатор, ничего не просит у администратора
@@ -67,8 +69,16 @@ try {
 
     # 3. код подключения → токен агента (хранилище Windows), ключ подписи доступов
     Say 'подключаю компьютер к SYSAI...'
-    & sysai-agent connect --server $Server --code $Code
-    if ($LASTEXITCODE -ne 0) { Stop-Install 'код не принят. Получите новый на странице агента и запустите установщик снова' }
+    if ($Joined -and -not $Code) {
+        Say 'компьютер уже подключён: оставляю прежнее подключение'
+    } else {
+        & sysai-agent connect --server $Server --code $Code
+        if ($LASTEXITCODE -ne 0) {
+            # Уже подключённый компьютер переустанавливают, чтобы обновить файлы: старое подключение не теряем.
+            if ($Joined) { Warn 'код не принят: оставляю прежнее подключение компьютера' }
+            else { Stop-Install 'код не принят. Получите новый на странице агента и запустите установщик снова' }
+        }
+    }
     $Info = (& sysai-agent status --json | Out-String) | ConvertFrom-Json
     $Agent = "$($Info.agent)"
     if (-not $Agent) { Stop-Install 'не удалось узнать имя агента (sysai-agent status)' }
@@ -163,6 +173,8 @@ try {
     if ($DesktopOK) { Write-Host '  Окно агента:           ярлык «Агент SYSAI» на рабочем столе (или sysai-agent desktop)' }
     else { Warn 'окно и ярлык ещё не установлены; проверьте сообщения выше и запустите sysai-agent desktop' }
     Write-Host "  Агент в терминале:     hermes -p $Agent"
+    $Now = (& sysai-agent status --json | Out-String) | ConvertFrom-Json
+    if ($Now.version) { Write-Host "  Синхронизатор:         $($Now.version)" }
     Write-Host '  Что на компьютере:     sysai-agent status'
     Write-Host "  Доступы, расходы, трасса - на странице агента в SYSAI: $Server/agents"
 }

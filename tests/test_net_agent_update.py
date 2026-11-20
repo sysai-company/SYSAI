@@ -108,6 +108,30 @@ def test_the_agents_page_shows_the_version_the_computer_reports(client, net_agen
     assert f"синхр. {installer.version()}" in page and "обновляется</span>" not in page
 
 
+def test_a_reinstall_needs_no_code_and_keeps_the_connection(client, net_agent):
+    """Переустановка — путь для машины, которая не может обновиться сама.
+
+    Код подключения одноразовый, и старый установщик требовал его даже там, где компьютер уже подключён, а на
+    «код не принят» обрывал всю установку. Теперь код нужен только новому компьютеру: install.ps1 видит
+    agent.json, оставляет прежнее подключение и переустанавливает файлы.
+    """
+    assert installer.one_liner("https://sysai.example") == \
+        "irm https://sysai.example/agents/api/install.ps1 | iex", "переустановка — без кода"
+    assert installer.one_liner("https://sysai.example", "7K2M-9QXA").startswith("$env:SYSAI_CODE='7K2M-9QXA';")
+    script = installer.script("https://sysai.example")
+    assert "$Joined = Test-Path (Join-Path $SysaiHome 'agent.json')" in script
+    assert "оставляю прежнее подключение" in script, "уже подключённый компьютер не теряет подключение"
+    assert "если он открыт, и запустите установщик снова" in script  # прежняя подсказка на месте
+
+    client.post("/agents/api/heartbeat", headers=net_agent["headers"],
+                json={"versions": {"sysai-agent": "0.4.9"}})
+    page = client.get(f"/agents/{net_agent['id']}").text
+    assert "Переустановить на компьютере без нового кода" in page
+    assert "irm http://testserver/agents/api/install.ps1 | iex" in page, "строка переустановки — без кода"
+    assert f"/agents/{net_agent['id']}/setup.exe" in page
+    assert "health" in page, "страница говорит, где смотреть, если служба отдаёт старое"
+
+
 # --------------------------------------------------------------------------------------------- «обновить сейчас»
 def test_update_all_bumps_the_revision_and_the_pulse_carries_it(client, net_agent):
     assert client.post("/agents/api/heartbeat", headers=net_agent["headers"], json={}).json()["update_rev"] == 0

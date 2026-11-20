@@ -24,6 +24,16 @@
 </section>
 {% endif %}
 
+{% set vs = a.versions or {} %}{% set sv = vs.get('sysai-agent') or vs.get('sync') %}
+{% if sv %}
+<details class="card" id="repair"><summary><b>Переустановить на компьютере без нового кода</b></summary>
+  <p>Код подключения нужен только новому компьютеру. Здесь подключение уже есть, установщик обновит файлы и оставит прежнее (на ПК — <code>%LOCALAPPDATA%\SYSAI\agent.json</code>), так что код не тратится.</p>
+  <pre class="net-pre">irm {{ server }}/agents/api/install.ps1 | iex</pre>
+  <p><a class="btn" href="/agents/{{ a.id }}/setup.exe">Скачать установщик (.exe)</a></p>
+  <p class="small muted">На компьютере синхронизатор {{ sv }}, SYSAI отдаёт {{ sync_version }} (сборка <code>{{ sync_build }}</code>). Если после переустановки версия та же — служба развёрнута из старой ревизии: откройте <code>{{ server }}/health</code> и сверьте <code>sync</code> и <code>commit</code> с репозиторием, переустановка тут не поможет.</p>
+</details>
+{% endif %}
+
 <div class="stats">
   <div class="stat"><b>{{ net_when(a.last_seen_at) if a.last_seen_at else '—' }}</b><span>на связи</span></div>
   <div class="stat"><b>${{ '%.2f'|format(spend.today) }}</b><span>сегодня · бюджет ${{ '%.2f'|format(rules.models.budget_day_usd) }}{{ '' if rules.models.budget_day_usd else ' (без лимита)' }}</span></div>

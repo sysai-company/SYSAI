@@ -96,8 +96,11 @@ def script(server: str) -> str:
             .replace("__SYSAI_WHEEL__", f"{server}/agents/api/sync/{name}").replace("__SYSAI_VERSION__", version()))
 
 
-def one_liner(server: str, code: str) -> str:
-    return f"$env:SYSAI_CODE='{code}'; irm {server.rstrip('/')}/agents/api/install.ps1 | iex"
+def one_liner(server: str, code: str = "") -> str:
+    """The line to paste on the PC. A code is for a new computer only: a reinstall keeps the old connection
+    (install.ps1 sees agent.json and skips connect), so «переустановить» never burns a one-time code."""
+    url = f"irm {server.rstrip('/')}/agents/api/install.ps1 | iex"
+    return f"$env:SYSAI_CODE='{code}'; {url}" if (code or "").strip() else url
 
 
 def exe(server: str, code: str = "") -> bytes:
