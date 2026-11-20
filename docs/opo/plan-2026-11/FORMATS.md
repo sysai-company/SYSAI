@@ -88,7 +88,7 @@ HMI/Frame/Startup/Startup.sscfg   заставка
 
 `oni_windows`, `oni_objects`, `oni_addresses`, `oni_check`, `oni_panel` — в отдельном инструменте
 `oni-project` (экраны панели это не программа ПЛК; в `plc-kit` их больше нет). Проект Haiwell Happy —
-тоже отдельный инструмент `haiwell-happy`, а не часть `plc-kit`: другая среда, другой формат, другой язык.
+тоже отдельный инструмент `haiwell-happy`, а не часть `plc-kit`: другая среда, другой формат, другой язык. Сам `.gpc` — закрытое сжатие вендора: читается только заголовок. Программа отдаётся списком инструкций (STL — штатный язык Haiwell Happy, LD ↔ STL по F7) плюс лестница и таблица адресов X/Y/M/T/D.
 Код — `hub/seed/oni-project/oniproj.py`. Тесты — `tests/test_hub_seed_oni.py` (8 тестов, проверены мутацией).
 
 ### Запись: что проверено
