@@ -63,6 +63,12 @@ contextBridge.exposeInMainWorld('sysai', {
     open: (id, file) => call('apps:open', id, file),
   },
   dialog: { files: (opts) => call('dialog:files', opts || {}) },
+  // «Проверить обновление»: check — что предлагает SYSAI и что стоит здесь, now — попросить синхронизатор
+  // поставить это сейчас (окно само ничего не устанавливает).
+  updates: {
+    check: () => call('update:check'),
+    now: () => call('update:now'),
+  },
   conv: { export: (data) => call('conv:export', data) },
   clipboard: { write: (text) => call('clipboard:text', String(text ?? '')) },
   storage: {

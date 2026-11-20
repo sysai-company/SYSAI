@@ -332,11 +332,21 @@ def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: in
             except (SyncError, ApiError, OSError) as exc:
                 failed = True
                 log.warning("%s", exc)
+                _note_failure(home, exc)
             if cycles and n >= cycles:
                 return 0
-            if _wait(home, every, sleep):
+            signal = _wait(home, every, sleep)
+            if signal == "stop":
                 log.info("Синхронизатор остановлен (его попросили: установщик или sysai-agent stop)")
                 return 0
+            if signal == "wake":  # «Проверить обновление» в окне агента: пробуем сейчас, не дожидаясь RETRY
+                state = fsutil.read_json(home / "state.json", {}) or {}
+                state["update_force"] = time.time()
+                for key in ("update_at", "update_to", "desktop_try"):
+                    state.pop(key, None)
+                fsutil.write_json(home / "state.json", state)
+                failed = True
+                log.info("Разбудили из окна агента: полная синхронизация и обновление сейчас")
     finally:
         lock.unlink(missing_ok=True)
 
@@ -358,15 +368,39 @@ def self_update(home: Path, client: Client, got: dict, state: dict) -> bool:
     return False
 
 
-def _wait(home: Path, seconds: int, sleep) -> bool:
-    """Sleeps; True when asked to stop (the file «stop» in the SYSAI folder — the installer does so before updating)."""
-    stop = Path(home) / "stop"
+def _note_failure(home: Path, exc: Exception) -> None:
+    """A failed cycle must be visible: the window and the agent's page read the reason from state.json. Before this
+    only the log knew it, so a computer refused by SYSAI looked healthy on screen and silently never updated."""
+    state = fsutil.read_json(Path(home) / "state.json", {}) or {}
+    state["error_at"] = now()
+    state["error"] = str(exc)[:2000]
+    fsutil.write_json(Path(home) / "state.json", state)
+
+
+def wake(home: Path | None = None) -> bool:
+    """Asks the running loop to check for an update now, without waiting for RETRY — «Проверить обновление» in the
+    window. True when a loop was there to see it."""
+    home = Path(home or paths.home())
+    if not (home / "run.lock").exists():
+        return False
+    (home / "wake").write_text("wake", encoding="utf-8")
+    return True
+
+
+def _wait(home: Path, seconds: int, sleep) -> str:
+    """Sleeps; "stop" when asked to stop (the file «stop» — the installer does so before updating), "wake" when the
+    window asks to check for an update now (the file «wake»), "" — the time is up."""
+    folder = Path(home)
+    stop, wake = folder / "stop", folder / "wake"
     for _ in range(max(1, int(seconds))):
         if stop.exists():
             stop.unlink(missing_ok=True)
-            return True
+            return "stop"
+        if wake.exists():
+            wake.unlink(missing_ok=True)
+            return "wake"
         sleep(1)
-    return False
+    return ""
 
 
 def stop(home: Path | None = None, wait: int = 60, sleep=time.sleep) -> bool:

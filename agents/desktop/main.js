@@ -26,6 +26,7 @@ const { Bridge } = require('./lib/bridge');
 const rules = require('./lib/rules');
 const { AutoApprove } = require('./lib/autoapprove');
 const apps = require('./lib/apps');
+const updates = require('./lib/updates');
 const pkg = require('./package.json');
 
 const VERSION = pkg.version;
@@ -748,6 +749,30 @@ function cleanPaste() {
   }))).catch(() => {});
 }
 
+// Один запрос к SYSAI из главного процесса: {status, body}. Тело — JSON или текст; сеть здесь, потому что странице
+// она запрещена (CSP), и потому что токен агента не должен попадать в renderer.
+function netJson(url, headers = {}, timeout = 15000) {
+  return new Promise((resolve, reject) => {
+    const lib = String(url).startsWith('https:') ? require('node:https') : require('node:http');
+    const req = lib.get(String(url), { headers, timeout }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let body = null;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = text;
+        }
+        resolve({ status: res.statusCode || 0, body });
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('истекло время ожидания')));
+    req.on('error', reject);
+  });
+}
+
 function handle(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!win || event.sender !== win.webContents) return { ok: false, error: 'запрос не из окна' };
@@ -895,6 +920,13 @@ function ipc() {
     if (!fs.existsSync(LOG)) log('журнал окна начат');
     return LOG;
   });
+  // «Проверить обновление»: the page has no network (CSP), so the request to SYSAI is made here. The window only
+  // reads the offer and wakes the synchronizer — installing stays in one place, update.py.
+  handle('update:check', () => {
+    const cfg = config.load(HOME);
+    return updates.check({ home: HOME, server: cfg.server, token: cfg.token, request: netJson });
+  });
+  handle('update:now', () => updates.wake(HOME));
   handle('win:overlay', (color) => {
     if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('нет цвета');
     try {

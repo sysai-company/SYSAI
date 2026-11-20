@@ -46,6 +46,8 @@ const S = {
   creating: null,
   askKind: new Map(),
   stuck: true,
+  upd: null, // {ok, update, why, error, offered, local, log} — «Проверить обновление» и плашка в окне
+  updHidden: false,
 };
 
 let composer;
@@ -603,6 +605,67 @@ function initials(person, agent) {
   return ((p[0] || 'A')[0] + (p[1] ? p[1][0] : '')).toUpperCase();
 }
 
+// ---------------------------------------------------------------------------------------------- обновление
+// «Проверить обновление»: сам запрос к SYSAI делает главный процесс (странице сеть запрещена, а токен агента не
+// должен попадать в неё). Здесь только ответ: красная точка на «…» и полоса над разговором. Ставит обновление
+// синхронизатор — окно просит его и перезапускается, когда тот поставит.
+let updBar = null;
+
+function updateBar() {
+  if (!updBar) {
+    updBar = h('div', { class: 'upd-bar', hidden: true });
+    $('topbar').after(updBar);
+  }
+  return updBar;
+}
+
+function drawUpdate() {
+  const u = S.upd;
+  const bad = Boolean(u && u.error);
+  const show = Boolean(u) && !S.updHidden && (u.update || bad);
+  const more = $('side-more');
+  if (more) more.classList.toggle('has-upd', show);
+  const bar = updateBar();
+  clear(bar);
+  bar.hidden = !show;
+  if (!show) return;
+  bar.classList.toggle('bad', bad);
+  const act = bad
+    ? [h('button', { class: 'btn soft sm', text: 'Журнал',
+      onclick: () => api.shell.open(`${S.info.home}/logs/sync.log`).catch((e) => toast(e.message, 'err')) }),
+    h('button', { class: 'btn soft sm', text: 'Проверить снова', onclick: () => checkUpdates(true) })]
+    : [h('button', { class: 'btn primary sm', text: 'Установить', onclick: installUpdate }),
+      h('button', { class: 'btn soft sm', text: 'Позже', onclick: () => { S.updHidden = true; drawUpdate(); } })];
+  bar.append(h('span', { class: 'upd-dot' }),
+    h('div', { class: 'upd-text' },
+      h('b', { text: bad ? 'Компьютер не связан с SYSAI' : `Есть обновление ${(u.offered || {}).version || ''}`.trim() }),
+      h('span', { text: bad ? u.error : u.why })),
+    h('div', { class: 'upd-act' }, act));
+}
+
+async function checkUpdates(verbose) {
+  const u = await api.updates.check().catch((e) => ({ ok: false, error: e.message || String(e) }));
+  S.upd = u;
+  if (u.update) S.updHidden = false;
+  drawUpdate();
+  if (verbose) {
+    if (u.error) toast(u.error, 'err', 15000);
+    else if (u.update) toast(`${u.why} — нажмите «Установить».`, 'update', 12000);
+    else toast(u.why || 'Обновление не нужно', 'ok', 8000);
+  }
+  return u;
+}
+
+async function installUpdate() {
+  const res = await api.updates.now().catch((e) => ({ asking: false, note: e.message || String(e) }));
+  if (!res.asking) {
+    toast(res.note, 'err', 20000);
+    return;
+  }
+  toast('Синхронизатор ставит обновление — окно перезапустится само.', 'update', 0);
+  setTimeout(() => checkUpdates(false), 45000);
+}
+
 function drawSidebar() {
   const nc = $('new-chat');
   nc.replaceChildren(icon('plus'), h('span', { text: 'Новый разговор' }), h('kbd', { text: 'Ctrl N' }));
@@ -615,21 +678,31 @@ function drawSidebar() {
   $('nav-projects').onclick = () => pane.toggle('projects');
   $('search-field').prepend(icon('search', 'sm'));
   $('search').addEventListener('input', debounce(drawSessions, 120));
-  const more = h('button', { class: 'icon-btn', title: 'Ещё' }, icon('dots'));
+  const more = h('button', { class: 'icon-btn', title: 'Ещё', id: 'side-more' }, icon('dots'),
+    h('span', { class: 'upd-badge' }));
   more.addEventListener('click', () => openMenu(more, [
+    { label: S.upd && S.upd.update ? `Установить обновление ${(S.upd.offered || {}).version || ''}`.trim()
+      : 'Проверить обновление',
+      sub: S.upd && S.upd.error ? String(S.upd.error).slice(0, 90)
+        : (S.upd && S.upd.update ? S.upd.why : 'что предлагает SYSAI для этого компьютера'),
+      value: 'update', icon: 'download' },
     { label: 'Перезапустить агента', sub: 'Hermes на этом компьютере', value: 'restart', icon: 'refresh' },
     { label: 'Журнал окна', value: 'logs', icon: 'fileText' },
     { label: 'Папка SYSAI', sub: S.info.home || '', value: 'home', icon: 'folder' },
     { sep: true },
     { label: `Окно ${S.info.version || ''}`, sub: `Electron ${S.info.electron || ''} · Hermes ${(S.acp.agentInfo && S.acp.agentInfo.version) || '—'}`, value: 'about', icon: 'info' },
   ], { above: true, onPick: (v) => {
-    if (v === 'restart') restartAcp();
+    if (v === 'update') {
+      if (S.upd && S.upd.update) installUpdate();
+      else checkUpdates(true);
+    } else if (v === 'restart') restartAcp();
     else if (v === 'logs') api.win.logs().then((p) => openPath(p)).catch((e) => toast(e.message, 'err'));
     else if (v === 'home') api.shell.open(S.info.home).catch((e) => toast(e.message, 'err'));
   } }));
   $('side-foot').replaceChildren(h('span', { class: 'avatar', text: initials(S.info.person, S.info.agent) }),
     h('div', { class: 'who' }, h('b', { text: S.info.person || S.info.agent || 'Агент SYSAI' }),
       h('span', { text: S.info.agent ? `агент ${S.info.agent}` : 'компьютер не подключён' })), more);
+  drawUpdate();
 }
 
 function drawSessions() {
@@ -939,6 +1012,9 @@ async function main() {
   });
   const reopen = localStorage.getItem('sysai.pane.open');
   if (reopen === 'files' || reopen === 'storage' || reopen === 'canvas') pane.show(reopen);
+  // «Ничего не прилетало» больше не должно быть молчаливым: спрашиваем SYSAI при запуске и раз в полчаса.
+  checkUpdates(false);
+  setInterval(() => checkUpdates(false), 30 * 60 * 1000);
   onAcpState(await api.acp.state().catch(() => ({ state: 'error', message: 'нет связи с основным процессом окна' })));
   api.ready();
 }

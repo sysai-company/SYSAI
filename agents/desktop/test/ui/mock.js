@@ -59,7 +59,7 @@
 
   let gen = 0;
   window.sysai = {
-    info: async () => ({ version: '0.7.0', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
+    info: async () => ({ version: '0.8.0', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
       server: 'https://hostless.cloud/apps/sysai', home: 'C:\\Users\\ivanov\\SYSAI', profile: 'sysai' }),
     ready: () => {},
     acp: {
@@ -84,6 +84,16 @@
       url: async (p) => `file://${p}`, attachments: async () => ({ items: [], text: '' }), paste: async () => '',
     },
     shell: { open: async () => {}, reveal: async () => {}, run: async () => {}, external: async () => {} },
+    // «Проверить обновление»: в стенде ?upd=1 — есть новая версия, ?upd=bad — компьютер не связан с SYSAI
+    updates: {
+      check: async () => (new URLSearchParams(location.search).get('upd') === 'bad'
+        ? { ok: false, status: 401, local: { version: '0.4.11' }, log: ['2026-11-20 09:12:04 WARNING SYSAI не принял токен агента'],
+          error: 'SYSAI не принял токен агента: агента отключили или подключили на другом компьютере. Получите новый код на странице агента и запустите установщик снова' }
+        : { ok: true, update: new URLSearchParams(location.search).get('upd') === '1',
+          local: { version: '0.4.11' }, offered: { version: '0.4.12', build: 'f'.repeat(64) }, autoUpdate: true,
+          why: 'SYSAI даёт 0.4.12, на компьютере 0.4.11', log: [] }),
+      now: async () => ({ asking: true }),
+    },
     // «Открыть в программе»: в стенде все четыре формата уже «есть», чтобы кнопки было видно
     apps: {
       detect: async () => [

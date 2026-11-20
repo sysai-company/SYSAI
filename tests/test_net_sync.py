@@ -8,6 +8,7 @@ import os
 import subprocess
 import stat
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -878,3 +879,42 @@ def test_a_new_build_of_the_synchronizer_is_a_new_revision(pc, monkeypatch):
     after = access.document(pc["agent_id"])
     assert after["doc"]["synchronizer"]["build"] == "f" * 64
     assert after["rev"] != before
+
+
+def test_a_wake_from_the_window_retries_the_update_without_waiting_for_retry(pc, monkeypatch):
+    """«Проверить обновление» в окне агента: файл «wake» будит цикл — сразу полная синхронизация, и попытка
+    установки не ждёт RETRY (шесть часов), как ждала бы после неудачной."""
+    core.sync_once(pc["home"], transport=pc["send"])
+    state = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))
+    state.update(update_force=True, update_at=time.time(), update_to="0.0.1")
+    (pc["home"] / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    assert core.wake(pc["home"]) is False, "цикл не запущен — будить некого"
+    (pc["home"] / "run.lock").write_text(str(0), encoding="utf-8")
+    assert core.wake(pc["home"]) is True
+    seen = {}
+
+    def due(state, now=None):
+        seen["update_at"] = state.get("update_at")
+        seen["force"] = state.get("update_force")
+        return {}
+
+    monkeypatch.setattr(core.update, "due", due)
+    naps = []
+    core.run(pc["home"], every=1, transport=pc["send"], cycles=2, sleep=lambda s: naps.append(s))
+    assert seen["update_at"] is None, "попытка не должна ждать RETRY: её просят прямо сейчас"
+    assert seen["force"], "«проверить обновление» — это и есть просьба установить"
+
+
+def test_a_failed_cycle_is_written_to_the_state_the_window_reads(pc, monkeypatch):
+    """Компьютер, которому SYSAI отказал (401), раньше выглядел здоровым: причина была только в журнале.
+    Теперь она в state.json — окно агента показывает её и красную точку."""
+    (pc["home"] / "state.json").write_text(json.dumps({"versions": {"sysai-agent": "0.4.10"}}), encoding="utf-8")
+
+    def refused(home, transport=None):
+        raise core.SyncError("SYSAI не принял токен агента: агента отключили или подключили на другом компьютере")
+
+    monkeypatch.setattr(core, "load_agent", refused)
+    core.run(pc["home"], every=1, transport=pc["send"], cycles=1, sleep=lambda s: None)
+    state = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))
+    assert "не принял токен агента" in state["error"]
+    assert state["error_at"]

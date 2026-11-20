@@ -1292,3 +1292,51 @@ test('apps: сценарий вставки — F7 → Ctrl+V → F9, и пут�
   assert.match(s, /O''Brien/);                                    // апостроф удвоен — иначе строка закроется
   assert.match(s, /Get-Process -Name 'HaiwellHappy'/);            // ждём окно, а не «спим и надеемся»
 });
+
+// ------------------------------------------------------------------------------------------------ обновление
+const updates = require('../lib/updates');
+
+test('обновление: версия и сборка', () => {
+  assert.deepEqual(updates.compare({ version: '0.4.10' }, { version: '0.4.11' }), {
+    update: true, why: 'SYSAI даёт 0.4.11, на компьютере 0.4.10' });
+  assert.equal(updates.compare({ version: '0.4.11' }, { version: '0.4.11' }).update, false);
+  // та же версия, но собранная из других исходников — это обновление: ровно тот случай, когда «ничего не прилетало»
+  assert.equal(updates.compare({ version: '0.4.11', build: 'a' }, { version: '0.4.11', build: 'b' }).update, true);
+  assert.equal(updates.compare({ version: '0.4.11', build: 'b' }, { version: '0.4.11', build: 'b' }).update, false);
+  assert.equal(updates.compare({ version: '0.4.12' }, { version: '0.4.11' }).update, false, 'на компьютере новее');
+  assert.equal(updates.compare({}, { version: '0.4.11' }).update, true, 'версия неизвестна — пусть попробует');
+});
+
+test('обновление: что предлагает SYSAI и почему не вышло', async () => {
+  const home = tmp();
+  const state = { versions: { 'sysai-agent': '0.4.10' } };
+  const doc = { doc: { synchronizer: { version: '0.4.11', build: 'f'.repeat(64), sha256: 'a'.repeat(64) } } };
+  const got = await updates.check({ home, server: 'https://sysai.test/', token: 'tok', state,
+    request: async () => ({ status: 200, body: doc }) });
+  assert.equal(got.ok, true);
+  assert.equal(got.update, true);
+  assert.equal(got.offered.version, '0.4.11');
+  assert.equal(got.autoUpdate, true);
+
+  const refused = await updates.check({ home, server: 'https://sysai.test', token: 'tok', state,
+    request: async () => ({ status: 401, body: {} }) });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.status, 401);
+  assert.match(refused.error, /не принял токен агента/);
+
+  const offline = await updates.check({ home, server: 'https://sysai.test', token: 'tok', state,
+    request: async () => { throw new Error('ENOTFOUND'); } });
+  assert.match(offline.error, /Нет связи с SYSAI/);
+
+  const lonely = await updates.check({ home, server: '', token: '', state, request: async () => ({ status: 200, body: {} }) });
+  assert.equal(lonely.ok, false);
+  assert.match(lonely.error, /не подключён/);
+});
+
+test('обновление: «установить» только просит синхронизатор', () => {
+  const home = tmp();
+  assert.equal(updates.wake(home).asking, false, 'цикла нет — будить некого');
+  fs.writeFileSync(path.join(home, 'run.lock'), '1');
+  assert.equal(updates.wake(home).asking, true);
+  assert.equal(fs.readFileSync(path.join(home, 'wake'), 'utf8'), 'wake');
+});
