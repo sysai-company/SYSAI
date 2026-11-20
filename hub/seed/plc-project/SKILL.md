@@ -7,7 +7,7 @@ version: 2.7.1
 
 Нужны инструменты: **drawing-kit** (схемы и чертежи PDF — текстом, без картинок), **plc-kit** (программа на ST, файл `.project`, связь, этапы), **machine-expert** (компиляция,
 контроллер — на ПК с Machine Expert), **ebpro-cmtp** (экраны Weintek EasyBuilder Pro), **oni-project** (экраны панели ONI), **haiwell-happy** (ПЛК
-Haiwell, `.gpc`), **pic-index** (библиотека картинок), **doc-kit**
+Haiwell: программа списком инструкций STL и таблица адресов; сам `.gpc` пишет Haiwell Happy), **pic-index** (библиотека картинок), **doc-kit**
 (документация — навык `project-docs`), MCP **sysai** (Хранилище: `files_list`, `files_find`, `files_read`; стили в
 Хабе: `hub_search`, `hub_propose`). Папка проекта должна быть открыта агенту на запись в доступах SYSAI.
 

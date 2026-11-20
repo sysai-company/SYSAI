@@ -20,8 +20,9 @@ FORMATS = (
              "языки — LD и ST"},
     {"id": "hawell", "bundle": "haiwell-happy", "title": "Haiwell Happy", "kind": "plc", "icon": "img/format-hawell.svg", "ext": ".gpc",
      "read": False, "write": False,
-     "note": "проект .gpc с диска есть (600_S1_Благовещенск), но тело файла сжато своим способом: zlib-потоков "
-             "нет, энтропия 7,06 бит/байт — структура ещё не снята. Язык у Haiwell только LD"},
+     "note": "язык у Haiwell только LD. Сам .gpc — закрытое сжатие вендора (не zlib/lzma/bz2/zstd, не XOR с ключом; энтропия 7,06), пишется "
+             "только в Haiwell Happy. Программа для Haiwell делается из спецификации: hawell_export → program.il "
+             "(STL — штатный язык среды, LD ↔ STL по F7), program.ld.txt, io.csv"},
     {"id": "oni", "bundle": "oni-project", "title": "ONI", "kind": "hmi", "icon": "img/format-oni.svg", "ext": ".fsprj",
      "read": True, "write": True,
      "note": "экраны: проект — папка с <имя>.fsprj и HMI/Frame/**/*.wcfg, окна и объекты это открытый XML "
