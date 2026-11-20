@@ -918,3 +918,14 @@ def test_a_failed_cycle_is_written_to_the_state_the_window_reads(pc, monkeypatch
     state = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))
     assert "не принял токен агента" in state["error"]
     assert state["error_at"]
+
+
+def test_update_now_asks_the_running_loop(pc, capsys):
+    """`sysai-agent update --now` — то же, что кнопка в окне: кладёт просьбу и уходит. Без цикла — честно говорит,
+    что будить некого, а не делает вид, что поставил."""
+    assert cli.main(["--home", str(pc["home"]), "update", "--now"]) == 1
+    assert "будить некого" in capsys.readouterr().out
+    (pc["home"] / "run.lock").write_text("1", encoding="utf-8")
+    assert cli.main(["--home", str(pc["home"]), "update", "--now"]) == 0
+    assert (pc["home"] / "wake").exists()
+    assert "проверяет и ставит сейчас" in capsys.readouterr().out

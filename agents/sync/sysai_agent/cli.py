@@ -35,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("version", help="версия")
     u = sub.add_parser("update", help="почему обновление не пришло: что стоит здесь, что отдаёт SYSAI")
     u.add_argument("--json", action="store_true", help="в JSON (для разбора)")
+    u.add_argument("--now", action="store_true", help="попросить синхронизатор проверить и поставить сейчас")
     return p
 
 
@@ -73,6 +74,13 @@ def main(argv=None) -> int:
     core.setup_logging(home, console=True)
     try:
         if args.cmd == "update":
+            if args.now:  # та же просьба, что кладёт окно агента: не ждать RETRY
+                if not core.wake(home):
+                    print("Синхронизатор на этом компьютере не запущен: будить некого "
+                          "(обновите установщиком со страницы агента)")
+                    return 1
+                print("Попросил синхронизатор: проверяет и ставит сейчас, журнал — logs\\update.log")
+                return 0
             info = core.update_report(home)
             if args.json:
                 print(json.dumps(info, ensure_ascii=False, indent=2))
