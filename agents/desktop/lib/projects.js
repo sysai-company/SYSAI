@@ -193,6 +193,30 @@ class Projects {
     return { root: this.root, projects: out };
   }
 
+  // «Удалить проект»: the folder goes to the trash of the projects folder (.trash, not shown in the list) or is
+  // erased together with the materials and the results. The window asks first and names what is inside.
+  async remove(name, mode = 'trash') {
+    const dir = this.dir(name);
+    let st = null;
+    try {
+      st = await fsp.stat(dir);
+    } catch {
+      throw new ProjectsError('нет такого проекта');
+    }
+    if (!st.isDirectory()) throw new ProjectsError('это не папка проекта');
+    const clean = cleanName(name);
+    if (mode === 'erase') {
+      await fsp.rm(dir, { recursive: true, force: true });
+      return { name: clean, mode: 'erase' };
+    }
+    const stamp = new Date().toISOString().replace(/[:]/g, '-').slice(0, 19).replace('T', ' ');
+    const trash = path.join(this.root, '.trash');
+    await fsp.mkdir(trash, { recursive: true });
+    const to = path.join(trash, `${clean} ${stamp}`);
+    await fsp.rename(dir, to);
+    return { name: clean, mode: 'trash', path: to };
+  }
+
   async create(name) {
     const dir = this.dir(name);
     if (fs.existsSync(dir)) throw new ProjectsError(`проект «${cleanName(name)}» уже есть`);

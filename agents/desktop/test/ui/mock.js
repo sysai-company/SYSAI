@@ -17,6 +17,11 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const PROJECT = '/tmp/sysai-ui-demo/Элеватор Благовещенск';
   const ago = (m) => new Date(Date.now() - m * 60000).toISOString();
+  // разговоры, которые окно держит само: одного нет в списке Hermes — он открывается из своей копии
+  const STORED = [
+    { id: 's-2', title: 'Разобрать пример проекта 2024 года', project: 'Элеватор Благовещенск', cwd: PROJECT, updated: ago(90), messages: 24 },
+    { id: 's-kept', title: 'Сверка сигналов, которой агент уже не помнит', project: '', cwd: '', updated: ago(60 * 30), messages: 12 },
+  ];
   const SESSIONS = [
     { sessionId: 's-work', title: 'Собрать проект элеватора по ТЗ и Э3', updatedAt: ago(2), cwd: PROJECT },
     { sessionId: 's-2', title: 'Разобрать пример проекта 2024 года', updatedAt: ago(90), cwd: PROJECT },
@@ -59,7 +64,7 @@
 
   let gen = 0;
   window.sysai = {
-    info: async () => ({ version: '0.8.0', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
+    info: async () => ({ version: '0.9.0', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
       server: 'https://hostless.cloud/apps/sysai', home: 'C:\\Users\\ivanov\\SYSAI', profile: 'sysai' }),
     ready: () => {},
     acp: {
@@ -69,7 +74,11 @@
       request: async (method, params) => {
         if (method === 'session/list') return { sessions: scene === 'empty' ? SESSIONS.slice(1) : SESSIONS };
         if (method === 'session/new') return { sessionId: `s-new-${Date.now()}`, configOptions: MODEL };
-        if (method === 'session/load') { setTimeout(() => script(params.sessionId), 30); await sleep(80); return { configOptions: MODEL }; }
+        if (method === 'session/load') {
+          // ?scene=kept — разговор, которого агент уже не помнит: окно показывает свою копию
+          if (scene === 'kept') throw new Error('session not found: профиль агента создан заново');
+          setTimeout(() => script(params.sessionId), 30); await sleep(80); return { configOptions: MODEL };
+        }
         if (method === 'session/prompt') { await sleep(1500); return { stopReason: 'end_turn' }; }
         return {};
       },
@@ -109,14 +118,30 @@
     projects: {
       list: () => rpc('projects:list'), create: (n) => rpc('projects:create', n), info: (n) => rpc('projects:info', n),
       add: async () => ({}), tidy: async () => [], dialog: (n, d) => rpc('projects:dialog', n, d), role: async () => ({}), attach: async () => ({}),
+      delete: async (n, mode) => ({ name: n, mode, dialogs: 0, path: `/проекты/.trash/${n}` }),
     },
+    // разговоры: на стенде живут в памяти страницы — как будто окно их уже записало
+    chats: {
+      list: async () => ({ dialogs: STORED, deleted: [] }),
+      read: async (id) => ({ id, title: 'Сверка сигналов, которой агент уже не помнит', cwd: '',
+        messages: [
+          { t: 'user', text: 'Сверь перечень сигналов с Э3 лист 7 — каналы DI и DO.' },
+          { t: 'agent', text: 'Сверил: **96 сигналов**, расхождений два.\n\n- `DI.I7` — датчик схода ленты нории N3 (по Э3 лист 7), в перечне он был у N4.\n- `DO.Q5` — пускатель шнека N2, в перечне отсутствует.\n\nСпецификацию поправил, перечень обновлён.' },
+          { t: 'tool', id: 'k1', title: 'read_file: materials/Э3 лист 7.pdf', kind: 'read', status: 'completed' },
+          { t: 'notice', text: 'Разговор восстановлен с этого компьютера: агент его уже не помнит.', kind: '' },
+        ] }),
+      write: async (doc) => ({ id: doc.id, title: doc.title || '', updated: new Date().toISOString(), messages: (doc.messages || []).length }),
+      delete: async (id) => ({ id }),
+    },
+    // вопрос системным окном: на стенде — сразу «Отмена»
+    ui: { confirm: async (opts) => ({ response: 0, buttons: (opts && opts.buttons) || [] }) },
     canvas: { state: async () => ({ open: false }), open: async () => {}, pick: async () => '', window: async () => {}, edit: async () => ({}),
       undo: async () => ({}), reload: async () => {}, close: async () => {}, easybuilder: async () => {}, pointer: () => {},
       onState: on('canvas:state'), onCursors: on('canvas:cursors'), onEdited: on('canvas:edited'), onFocus: on('canvas:focus') },
     win: { overlay: async () => {}, logs: async () => '', onShow: on('ui:show'), onNotice: on('ui:notice') },
     pathForFile: () => '',
   };
-  localStorage.setItem('sysai.session.last', scene === 'empty' ? '' : 's-work');
+  localStorage.setItem('sysai.session.last', scene === 'empty' ? '' : scene === 'kept' ? 's-kept' : 's-work');
   localStorage.setItem('sysai.project', 'Элеватор Благовещенск');
   localStorage.removeItem('sysai.pane.open');
   if (scene === 'work') addEventListener('load', () => setTimeout(() => document.getElementById('nav-projects').click(), 200));

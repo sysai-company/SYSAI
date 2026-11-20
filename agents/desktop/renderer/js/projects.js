@@ -152,7 +152,8 @@ export class ProjectsView {
       h('button', { class: 'icon-btn sm', title: 'Добавить из Хранилища SYSAI: откроется Хранилище, у файла или папки нажмите «В материалы проекта»',
         onclick: () => this.hooks.storage && this.hooks.storage({ name: info.name }) }, icon('archive', 'sm')),
       h('button', { class: 'icon-btn sm', title: 'Открыть папку проекта', onclick: () => api.shell.open(info.path).catch((e) => toast(e.message, 'err')) }, icon('folderOpen', 'sm')),
-      h('button', { class: 'icon-btn sm', title: 'Обновить', onclick: () => this.open(info.name) }, icon('refresh', 'sm')));
+      h('button', { class: 'icon-btn sm', title: 'Обновить', onclick: () => this.open(info.name) }, icon('refresh', 'sm')),
+      h('button', { class: 'icon-btn sm danger', title: 'Удалить проект…', onclick: () => this.remove() }, icon('trash', 'sm')));
     const list = h('div', { class: 'ex-list' });
     clear(this.el).append(bar, this._pipeline(info), this._openers(info), this._actions(info), list);
     this._drop(list);
@@ -316,6 +317,40 @@ export class ProjectsView {
     if (tag) tag.addEventListener('click', (e) => { e.stopPropagation(); this._role(this.info, f, src, tag); });
     return h('button', { class: 'ex-row', title: f.path, onclick: () => this.hooks.open(f.path) }, icon(kindIcon(kind), 'kind'),
       h('span', { class: 'nm', text: rel }), tag, h('span', { class: 'meta', text: `${size(f.size)} · ${when(f.mtime, { short: true })}` }));
+  }
+
+  // «Удалить проект»: a native question first, then the folder goes to the trash of the projects folder (it can be
+  // brought back) or is erased with everything in it. The conversations about the project go with it.
+  async remove() {
+    const info = this.info;
+    if (!this.name || !info) return;
+    const parts = [`материалов ${info.materials.length}`, `результатов ${info.results.length}`];
+    if (info.work && info.work.files) parts.push(`черновиков ${info.work.files}`);
+    const ask = await api.ui.confirm({
+      kind: 'warning',
+      title: 'Удалить проект',
+      message: `Удалить проект «${info.name}»?`,
+      detail: `В проекте: ${parts.join(', ')}.\n\n`
+        + '«В корзину» — папка переедет в скрытую .trash рядом с остальными проектами: место на диске освободится, '
+        + 'вернуть можно, переименовав папку обратно.\n'
+        + '«Удалить навсегда» — папка стирается вместе с материалами и результатами, вернуть нечем.',
+      buttons: ['Отмена', 'В корзину', 'Удалить навсегда'],
+      defaultId: 0,
+      cancelId: 0,
+    }).catch(() => ({ response: 0 }));
+    if (!ask.response) return;
+    const mode = ask.response === 1 ? 'trash' : 'erase';
+    try {
+      const done = await api.projects.delete(info.name, mode);
+      toast(`Проект «${done.name}» ${done.mode === 'trash' ? `в корзине: ${done.path}` : 'удалён'}`
+        + `${done.dialogs ? `, разговоров удалено: ${done.dialogs}` : ''}`, 'ok', 8000);
+      this.name = '';
+      this.info = null;
+      if (this.hooks.deleted) this.hooks.deleted(info.name);
+      this.list();
+    } catch (err) {
+      toast(`Проект не удалился: ${err.message}`, 'err', 9000);
+    }
   }
 
   async tidy() {

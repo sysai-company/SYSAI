@@ -16,6 +16,7 @@ const { pathToFileURL } = require('node:url');
 const { AcpClient } = require('./lib/acp');
 const { Canvas, PERSON } = require('./lib/canvas');
 const config = require('./lib/config');
+const chats = require('./lib/chats');
 const files = require('./lib/files');
 const storage = require('./lib/storage');
 const convExport = require('./lib/export');
@@ -862,7 +863,42 @@ function ipc() {
   handle('projects:add', (name, paths) => projects.add(String(name || ''), Array.isArray(paths) ? paths.map(need) : []));
   handle('projects:tidy', (name) => projects.tidy(String(name || '')));
   handle('projects:dialog', (name, dialog) => projects.noteDialog(String(name || ''), dialog || {}));
+  // «Удалить проект»: the folder goes to the trash of the projects folder or is erased. The window asks first (a
+  // native dialog, so no page can do it by accident), and the conversations about the project go with it.
+  handle('projects:delete', async (name, mode) => {
+    const how = mode === 'erase' ? 'erase' : 'trash';
+    const done = await projects.remove(String(name || ''), how);
+    const convs = await chats.removeProject(HOME, done.name);
+    return { ...done, dialogs: convs.removed };
+  });
+  // A native question with buttons, for removing things: the page names them, the system draws them.
+  handle('ui:confirm', async (opts) => {
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const buttons = Array.isArray(o.buttons) && o.buttons.length ? o.buttons.map((b) => String(b)) : ['Отмена', 'Удалить'];
+    const res = await dialog.showMessageBox(win, {
+      type: o.kind === 'warning' ? 'warning' : 'question',
+      title: String(o.title || 'Агент SYSAI'),
+      message: String(o.message || ''),
+      detail: String(o.detail || ''),
+      buttons,
+      defaultId: Number.isInteger(o.defaultId) ? o.defaultId : 0,
+      cancelId: Number.isInteger(o.cancelId) ? o.cancelId : 0,
+      noLink: true,
+    });
+    return { response: res.response };
+  });
   // «Сохранить разговор»: Markdown into the project (_work/notes) or into «SYSAI Разговоры» of the documents
+  // The conversations of the window: our own copy, so a restart, an update or a profile made anew does not lose
+  // them. list returns what is kept plus the ids the person deleted (Hermes may still list those sessions).
+  handle('chats:list', () => chats.list(HOME));
+  handle('chats:read', (id) => chats.read(HOME, String(id || '')));
+  handle('chats:write', (doc) => chats.write(HOME, doc || {}));
+  handle('chats:delete', async (id) => {
+    const done = await chats.remove(HOME, String(id || ''));
+    // Hermes' own store is asked to forget the session too; a Hermes that does not know it is not an error
+    try { await acp.request('session/delete', { sessionId: done.id }); } catch { /* no such method or no session */ }
+    return done;
+  });
   handle('conv:export', async (data) => {
     const d = data && typeof data === 'object' ? data : {};
     const dir = d.project ? path.join(projects.dir(String(d.project)), '_work', 'notes') : path.join(app.getPath('documents'), 'SYSAI Разговоры');

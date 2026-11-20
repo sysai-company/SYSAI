@@ -99,6 +99,27 @@ export class Conversation {
     this.loaded = false;
     this.draft = true; // nothing was said yet
     this.working = null;
+    // What was said, in the plainest form — kept on this computer (lib/chats.js) and shown again after a restart,
+    // even when Hermes no longer knows this session. The records are the same objects the blocks hold, so text that
+    // grows with every chunk (the person's message, the answer) is written out already complete.
+    this.journal = [];
+    this.restoring = false;
+    this.hermes = ''; // the session Hermes knows, when it is not this.id (a conversation restored from our copy)
+    this.archived = false; // shown from our copy: Hermes has no such session, the next message starts a new one
+  }
+
+  // The session this conversation is asked about: its own id, or the new one when the conversation was restored from
+  // our copy after Hermes forgot it.
+  get key() {
+    return this.hermes || this.id;
+  }
+
+  _rec(rec) {
+    if (this.restoring) return rec;
+    this.journal.push(rec);
+    if (this.journal.length > 400) this.journal.splice(0, this.journal.length - 400);
+    if (this.hooks.onRecord) this.hooks.onRecord(this, rec);
+    return rec;
   }
 
   get empty() {
@@ -180,6 +201,7 @@ export class Conversation {
     const filesEl = h('div', { class: 'files' });
     const el = h('div', { class: 'msg user' }, filesEl, bubble);
     const b = { type: 'user', el, bubble, filesEl, text, files: [...files], messageId };
+    b.rec = this._rec({ t: 'user', text, files: files.map((f) => ({ name: f.name, path: f.path || '' })) });
     this._push(b);
     this._drawUser(b);
     return b;
@@ -187,6 +209,7 @@ export class Conversation {
 
   _drawUser(b) {
     // what the window adds to the prompt for the agent (paths of attachments) is not shown twice
+    if (b.rec) { b.rec.text = b.text; b.rec.files = b.files.map((f) => ({ name: f.name, path: f.path || '' })); }
     b.bubble.textContent = b.text.replace(/\n*(\[Вложения: [^\]]*\]\s*)?(\[Большие файлы[^\]]*\]\s*)?$/, '').trim();
     b.bubble.hidden = !b.bubble.textContent;
     clear(b.filesEl);
@@ -213,9 +236,11 @@ export class Conversation {
       const copy = h('button', { class: 'icon-btn sm', title: 'Копировать ответ' }, icon('copy', 'sm'));
       const el = h('div', { class: 'msg agent' }, md, h('div', { class: 'acts' }, copy));
       b = this._push({ type: 'agent', el, md, text: '', messageId: messageId || '', raf: 0 });
+      b.rec = this._rec({ t: 'agent', text: '' });
       copy.addEventListener('click', () => this.hooks.copy && this.hooks.copy(b.text));
     }
     b.text += text;
+    if (b.rec) b.rec.text = b.text;
     this._renderAgent(b);
   }
 
@@ -276,6 +301,8 @@ export class Conversation {
     const row = h('button', { class: 'row' });
     const el = h('div', { class: 'tool' }, row);
     const t = { id: u.toolCallId, data: { status: 'pending', ...u }, el, row, body: null, open: false };
+    t.rec = this._rec({ t: 'tool', id: String(u.toolCallId || ''), title: String(u.title || u.kind || 'инструмент'),
+      kind: String(u.kind || ''), status: 'pending' });
     row.addEventListener('click', () => { t.open = !t.open; this._drawToolBody(t); });
     this.tools.set(u.toolCallId, t);
     (group.names = group.names || []).push(String(u.title || u.kind || 'инструмент'));
@@ -288,6 +315,10 @@ export class Conversation {
     const t = this.tools.get(u.toolCallId);
     if (!t) { this.toolCall({ ...u }); return; }
     for (const [k, v] of Object.entries(u)) if (v !== undefined && v !== null && k !== 'sessionUpdate') t.data[k] = v;
+    if (t.rec) {
+      t.rec.status = String(t.data.status || t.rec.status || '');
+      if (t.data.title) t.rec.title = String(t.data.title);
+    }
     this._drawTool(t);
     if (t.open) this._drawToolBody(t);
     this._grow();
@@ -450,6 +481,7 @@ export class Conversation {
     const el = h('div', { class: `notice msg ${kind}` }, icon(kind === 'err' ? 'alert' : kind === 'warn' ? 'alert' : 'info', 'sm'),
       h('div', { class: 'grow', text }));
     this._push({ type: 'notice', el });
+    this._rec({ t: 'notice', text, kind });
     return el;
   }
 
@@ -500,6 +532,40 @@ export class Conversation {
     this.working = null;
     this.running = false;
     this.draft = true;
+    this.journal = [];
+  }
+
+  // The conversation as it is kept on this computer: the same records, ready to be written to a file.
+  doc(extra = {}) {
+    return { id: this.id, hermes: this.hermes || '', title: this.title || '', cwd: this.cwd || '',
+      messages: this.journal, ...extra };
+  }
+
+  // Draws a conversation kept on this computer (lib/chats.js). What was said comes back; the working state does not:
+  // the answer was finished or interrupted before the window was closed, and it says so.
+  restore(messages, { archived = true } = {}) {
+    this.restoring = true;
+    try {
+      this.reset();
+      for (const m of Array.isArray(messages) ? messages : []) {
+        if (!m || typeof m !== 'object') continue;
+        if (m.t === 'user') this.addUser(String(m.text || ''), Array.isArray(m.files) ? m.files : []);
+        else if (m.t === 'agent' && m.text) this.apply({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: String(m.text) } });
+        else if (m.t === 'tool' && m.title) {
+          this.toolCall({ toolCallId: m.id || m.title, title: m.title, kind: m.kind || '' });
+          this.toolUpdate({ toolCallId: m.id || m.title, status: m.status || 'completed' });
+        } else if (m.t === 'notice' && m.text) this.notice(String(m.text), String(m.kind || ''));
+      }
+    } finally {
+      this.restoring = false;
+    }
+    // the blocks drawn above recorded nothing (restoring), so the journal is the file as it is
+    this.journal = (Array.isArray(messages) ? messages : []).map((m) => ({ ...m }));
+    this.draft = !this.blocks.length;
+    this.loaded = true; // nothing to ask Hermes for: what it would replay is already drawn
+    this.archived = archived; // false — Hermes knows the session, the conversation continues in it
+    this._grow();
+    this._changed('running');
   }
 }
 

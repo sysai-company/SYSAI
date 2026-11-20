@@ -85,7 +85,18 @@ contextBridge.exposeInMainWorld('sysai', {
     dialog: (name, dialog) => call('projects:dialog', name, dialog),
     role: (name, rel, role) => call('projects:role', name, rel, role),
     attach: (name, item, role) => call('projects:attach', name, item, role),
+    // «Удалить проект»: 'trash' — в папку .trash проектов, 'erase' — стереть вместе с материалами и результатами
+    delete: (name, mode) => call('projects:delete', name, mode),
   },
+  // Разговоры этого компьютера: своя копия, чтобы перезапуск и обновление их не теряли
+  chats: {
+    list: () => call('chats:list'),
+    read: (id) => call('chats:read', id),
+    write: (doc) => call('chats:write', doc),
+    delete: (id) => call('chats:delete', id),
+  },
+  // Вопрос системным окном (кнопки называет страница): ответ — номер нажатой кнопки
+  ui: { confirm: (opts) => call('ui:confirm', opts) },
   canvas: {
     state: () => call('canvas:state'),
     open: (path, window) => call('canvas:open', path, window),

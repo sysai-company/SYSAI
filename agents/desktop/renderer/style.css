@@ -7,6 +7,8 @@
   --sblue: #8fa8d8; --sblue-bg: rgba(143,168,216,.13);
   --green: #7fb77e; --green-bg: rgba(127,183,126,.12); --amber: #e0a85a; --amber-bg: rgba(224,168,90,.12);
   --red: #e06c5a; --red-bg: rgba(224,108,90,.1); --gold: #e2c27a;
+  /* текст кода внутри ответа: в тёмной теме светлый, в светлой — тёмный (иначе `DI.I7` не видно) */
+  --code-text: #e9e4d6;
   --hover: rgba(240,238,230,.045); --active: rgba(240,238,230,.075);
   --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -109,6 +111,12 @@ body.resizing { cursor: col-resize; } body.resizing iframe { pointer-events: non
 .s-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .s-item .when { font-size: 11px; color: var(--faint); flex: none; }
 .s-item .busy { width: 6px; height: 6px; border-radius: 50%; background: var(--clay); flex: none; animation: pulse 1.2s ease-in-out infinite; }
+/* «Удалить разговор»: the bin appears on the row under the pointer, and the time makes room for it */
+.s-item .s-del { flex: none; width: 20px; height: 20px; display: none; align-items: center; justify-content: center; border-radius: 5px; color: var(--faint); }
+.s-item:hover .s-del, .s-item:focus-within .s-del { display: inline-flex; }
+.s-item .s-del:hover { background: var(--red-bg); color: var(--red); }
+.s-item.kept .t::after { content: ''; display: inline-block; width: 4px; height: 4px; margin-left: 6px; border-radius: 50%; background: var(--faint); vertical-align: 2px; }
+.icon-btn.danger:hover { background: var(--red-bg); color: var(--red); }
 .s-empty { padding: 18px 12px; color: var(--faint); font-size: 12.5px; line-height: 1.5; }
 .side-foot { flex: none; border-top: 1px solid var(--line); padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
 .avatar { width: 30px; height: 30px; border-radius: 9px; flex: none; display: inline-flex; align-items: center; justify-content: center; font: 700 12px/1 var(--sans); color: var(--on-clay); background: linear-gradient(135deg, var(--clay), #c9a07a); }
@@ -207,12 +215,12 @@ html[data-theme="light"] .upd-text span { color: var(--muted); }
 .md blockquote { margin: 0 0 .8em; padding: .1em 0 .1em 1em; border-left: 2px solid var(--clay-line); color: var(--soft); }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
 .md strong { font-weight: 650; } .md em { font-style: italic; }
-.md code { font: .86em/1.5 var(--mono); background: var(--card2); border: 1px solid var(--line); padding: .1em .38em; border-radius: 5px; color: #e9e4d6; }
+.md code { font: .86em/1.5 var(--mono); background: var(--card2); border: 1px solid var(--line); padding: .1em .38em; border-radius: 5px; color: var(--code-text); }
 .md code.path { color: var(--sblue); cursor: pointer; border-color: rgba(143,168,216,.25); } .md code.path:hover { background: var(--sblue-bg); }
 .md a.path { color: var(--sblue); }
 .md pre { margin: 0 0 .9em; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .md pre .code-head { display: flex; align-items: center; justify-content: space-between; height: 30px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); font: 500 11px/1 var(--mono); color: var(--muted); text-transform: lowercase; }
-.md pre code { display: block; background: none; border: 0; padding: 10px 14px; overflow-x: auto; font-size: 12.75px; line-height: 1.6; color: #e6e1d3; white-space: pre; border-radius: 0; }
+.md pre code { display: block; background: none; border: 0; padding: 10px 14px; overflow-x: auto; font-size: 12.75px; line-height: 1.6; color: var(--code-text); white-space: pre; border-radius: 0; }
 .md table { border-collapse: collapse; margin: 0 0 .9em; font-size: .93em; display: block; overflow-x: auto; max-width: 100%; }
 .md th, .md td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
 .md th { background: var(--card); font-weight: 600; color: var(--soft); }
@@ -573,6 +581,7 @@ html[data-theme="light"] {
   --add-ink: #1d5b40; --del-ink: #93301f; --ctx-ink: #565c60;
   color-scheme: light;
 }
+html[data-theme="light"] { --code-text: #2b3136; }
 html[data-theme="light"] ::selection { background: rgba(168,64,43,.18); }
 html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(20,23,25,.14); }
 html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background-color: rgba(20,23,25,.24); }

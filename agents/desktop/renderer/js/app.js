@@ -48,7 +48,14 @@ const S = {
   stuck: true,
   upd: null, // {ok, update, why, error, offered, local, log} — «Проверить обновление» и плашка в окне
   updHidden: false,
+  // Разговоры, которые окно держит само (<SYSAI>\chats): переживают перезапуск, обновление и новый профиль агента
+  stored: new Map(), // id → {id, title, project, cwd, updated, messages}
+  deleted: new Set(), // что человек удалил: Hermes может всё ещё перечислять эту сессию
+  alias: new Map(), // id сессии Hermes → id разговора окна (когда Hermes завёл новую для восстановленной истории)
 };
+
+const SAVE_MS = 500;
+const saveTimers = new Map();
 
 let composer;
 let pane;
@@ -75,6 +82,7 @@ function makeConv(id) {
       await api.acp.respond(reqId, result);
     },
     copy: (text) => api.clipboard.write(text).then(() => toast('Скопировано', 'ok', 1500)),
+    onRecord: () => saveConv(conv),
   });
   S.convs.set(id, conv);
   return conv;
@@ -100,6 +108,86 @@ function onConvChange(conv, what) {
     const busy = [...S.convs.values()].some((c) => c.running);
     $('brand-tile').classList.toggle('live', busy);
   }
+}
+
+// ------------------------------------------------------------------- разговоры на этом компьютере (lib/chats.js)
+// What the window keeps of a conversation, and when: the person's message and each finished answer are written at
+// once (the window can be closed mid-answer), the growing text — half a second after it stops changing.
+function docOf(conv) {
+  const s = S.sessions.find((x) => x.sessionId === conv.id);
+  const project = projectOf(conv.cwd || (s && s.cwd) || '');
+  return conv.doc({ project: project ? project.name : '', title: conv.title || (s && s.title) || '' });
+}
+
+function saveConv(conv, now = false) {
+  if (conv.draft && conv.empty) return;
+  const timer = saveTimers.get(conv.id);
+  if (timer) clearTimeout(timer);
+  saveTimers.delete(conv.id);
+  const go = () => {
+    api.chats.write(docOf(conv)).then((sum) => { if (sum) S.stored.set(sum.id, sum); }).catch(() => {});
+  };
+  if (now) go();
+  else saveTimers.set(conv.id, setTimeout(go, SAVE_MS));
+}
+
+async function loadStored() {
+  const got = await api.chats.list().catch(() => null);
+  if (!got) return;
+  S.stored = new Map((got.dialogs || []).map((d) => [d.id, d]));
+  S.deleted = new Set(got.deleted || []);
+  mergeStored();
+  drawSessions();
+}
+
+// A conversation Hermes does not list (another profile, another computer, a made-anew profile after an update) is
+// still here: it is shown in the list and opens from our copy. The ones the person deleted are not.
+function mergeStored() {
+  const seen = new Set(S.sessions.map((s) => s.sessionId));
+  for (const d of S.stored.values()) {
+    if (S.deleted.has(d.id) || seen.has(d.id)) continue;
+    S.sessions.push({ sessionId: d.id, title: d.title || '', updatedAt: d.updated || '', cwd: d.cwd || '',
+      local: true, stored: true });
+  }
+  S.sessions.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+}
+
+// «Удалить разговор»: a native question first — the history of this computer goes, the files and the projects the
+// conversation was about stay where they are.
+async function deleteConv(id) {
+  const conv = S.convs.get(id);
+  const s = S.sessions.find((x) => x.sessionId === id);
+  const title = (conv && conv.title) || (s && s.title) || 'Без названия';
+  const ask = await api.ui.confirm({
+    kind: 'warning',
+    title: 'Удалить разговор',
+    message: `Удалить разговор «${title}»?`,
+    detail: 'История разговора будет удалена с этого компьютера. Файлы, проекты и всё, что агент сделал в них, останутся.',
+    buttons: ['Отмена', 'Удалить'],
+    defaultId: 0,
+    cancelId: 0,
+  }).catch(() => ({ response: 0 }));
+  if (ask.response !== 1) return;
+  saveTimers.delete(id);
+  try {
+    await api.chats.delete(id);
+  } catch (err) {
+    toast(`Разговор не удалился: ${err.message}`, 'err', 8000);
+    return;
+  }
+  S.deleted.add(id);
+  S.stored.delete(id);
+  S.sessions = S.sessions.filter((x) => x.sessionId !== id);
+  S.convs.delete(id);
+  if (S.current === id) {
+    S.current = '';
+    localStorage.removeItem('sysai.session.last');
+    drawThread();
+    drawTop();
+    try { await newDraft(); } catch { /* агент ещё не запустился: пустой экран скажет об этом сам */ }
+  }
+  drawSessions();
+  toast('Разговор удалён.', 'ok', 3000);
 }
 
 // The project a folder belongs to: «SYSAI Проекты/<проект>/…» → {name, path}; null — not a project.
@@ -199,8 +287,29 @@ async function loadConv(conv) {
       const res = await api.acp.request('session/load', conv.cwd ? { sessionId: conv.id, cwd: conv.cwd } : { sessionId: conv.id });
       if (res && Array.isArray(res.configOptions)) conv.config = res.configOptions;
       conv.loaded = true;
+      // Hermes knows the session but said nothing about what was in it (a profile that keeps titles only, a build
+      // that stopped replaying history): the conversation is drawn from our copy, and the next message goes into
+      // the same session. The wait gives a Hermes that does replay time to send the first chunks.
+      if (conv.empty) {
+        await new Promise((done) => setTimeout(done, 1500));
+        if (conv.empty) {
+          const kept = await api.chats.read(conv.id).catch(() => null);
+          if (kept && Array.isArray(kept.messages) && kept.messages.length) conv.restore(kept.messages, { archived: false });
+        }
+      }
       return true;
     } catch (err) {
+      // Hermes no longer knows it (a profile made anew, another computer, an update): the history is on this
+      // computer, so the conversation opens anyway — the next message continues it in a new session.
+      const kept = await api.chats.read(conv.id).catch(() => null);
+      if (kept && Array.isArray(kept.messages) && kept.messages.length) {
+        conv.restore(kept.messages);
+        conv.hermes = kept.hermes || '';
+        conv.cwd = conv.cwd || kept.cwd || '';
+        if (!conv.title && kept.title) conv.title = kept.title;
+        toast('Агент не помнит этот разговор — история показана с этого компьютера. Следующее сообщение продолжит её в новой сессии агента.', 'info', 9000);
+        return true;
+      }
       conv.notice(`Разговор не открылся: ${err.message}`, 'err');
       return false;
     }
@@ -240,6 +349,15 @@ async function send({ text, files }) {
       }
     }
 
+    if (conv.archived) {
+      // the conversation was restored from our copy: Hermes has no such session, so one is made for the new message
+      const res = await api.acp.request('session/new', conv.cwd ? { cwd: conv.cwd } : {});
+      conv.hermes = String(res.sessionId || '');
+      if (conv.hermes) S.alias.set(conv.hermes, conv.id);
+      if (res && Array.isArray(res.configOptions)) conv.config = res.configOptions;
+      conv.archived = false;
+      conv.loaded = true;
+    }
     const wasDraft = conv.draft;
     // a big text file is named by its path, not linked: linked, its whole text would go into every next request
     const attached = files.length ? await api.fs.attachments(files) : { items: [], text: '' };
@@ -265,13 +383,15 @@ async function send({ text, files }) {
     S.stuck = true;
     drawThread();
     drawTop();
+    saveConv(conv, true);
     try {
-      const res = await api.acp.request('session/prompt', { sessionId: conv.id, prompt });
+      const res = await api.acp.request('session/prompt', { sessionId: conv.key, prompt });
       conv.finish(res && res.stopReason);
     } catch (err) {
       conv.finish(null, err.message || String(err));
     }
     touch(conv.id);
+    saveConv(conv, true);
     return true;
   } catch (err) {
     toast(err.message, 'err');
@@ -289,12 +409,12 @@ function stop() {
     api.acp.respond(reqId, kind === 'elicitation/create' ? { action: 'cancel' } : { outcome: { outcome: 'cancelled' } }).catch(() => {});
     conv.dropAsk(reqId, 'Остановлено');
   }
-  api.acp.notify('session/cancel', { sessionId: conv.id }).catch((err) => toast(err.message, 'err'));
+  api.acp.notify('session/cancel', { sessionId: conv.key }).catch((err) => toast(err.message, 'err'));
 }
 
 async function setConfig(conv, configId, value) {
   try {
-    const res = await api.acp.request('session/set_config_option', { sessionId: conv.id, configId, value });
+    const res = await api.acp.request('session/set_config_option', { sessionId: conv.key, configId, value });
     if (res && Array.isArray(res.configOptions)) conv.config = res.configOptions;
     else {
       const opt = conv.config.find((o) => o.id === configId);
@@ -381,6 +501,8 @@ async function loadSessions(more = false) {
       }
       S.sessions = [...local, ...got];
     }
+    S.sessions = S.sessions.filter((s) => !S.deleted.has(s.sessionId));
+    mergeStored();
     S.sessions.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     S.cursor = (res && res.nextCursor) || null;
     S.listError = '';
@@ -394,7 +516,7 @@ async function loadSessions(more = false) {
 
 function onNotification({ method, params }) {
   if (method !== 'session/update' || !params) return;
-  const conv = S.convs.get(params.sessionId);
+  const conv = S.convs.get(params.sessionId) || S.convs.get(S.alias.get(params.sessionId));
   const u = params.update || {};
   if (!conv) {
     if (u.sessionUpdate === 'session_info_update' && u.title) {
@@ -444,7 +566,7 @@ async function undoEdit(id) {
 }
 
 function onRequest({ id, method, params }) {
-  const conv = S.convs.get(params && params.sessionId);
+  const conv = S.convs.get(params && params.sessionId) || S.convs.get(S.alias.get(params && params.sessionId));
   if (!conv) {
     api.acp.respond(id, method === 'elicitation/create' ? { action: 'cancel' } : { outcome: { outcome: 'cancelled' } }).catch(() => {});
     return;
@@ -513,8 +635,22 @@ class Pane {
     });
     this.canvas = new CanvasView({ focus: () => this.show('canvas'), mention: (t) => composer.fill(t) });
     this.projects = new ProjectsView({ open: (p) => openPath(p), ask: (t, project) => askInProject(t, project),
+      // проект удалён — его разговоры ушли вместе с ним (главный процесс их тоже убрал)
+      deleted: (name) => {
+        for (const s of [...S.sessions]) {
+          const p = projectOfSession(s.sessionId);
+          if (!p || p.name !== name) continue;
+          S.sessions = S.sessions.filter((x) => x !== s);
+          S.convs.delete(s.sessionId);
+          S.stored.delete(s.sessionId);
+          if (S.current === s.sessionId) { S.current = ''; localStorage.removeItem('sysai.session.last'); loadStored(); drawThread(); drawTop(); }
+        }
+        if (S.current === '') newDraft().catch(() => {});
+        loadStored();
+        drawSessions();
+      },
       dialog: (id) => {
-        if (S.sessions.some((s) => s.sessionId === id) || S.convs.has(id)) selectConv(id);
+        if (S.sessions.some((s) => s.sessionId === id) || S.convs.has(id) || S.stored.has(id)) selectConv(id);
         else toast('Этого разговора у агента на этом компьютере нет: он шёл на другом компьютере или профиль агента создан заново.', 'info', 7000);
       },
       storage: (project) => {
@@ -739,10 +875,13 @@ function drawSessions() {
     const busy = conv && (conv.running || conv.waiting);
     const title = (conv && conv.title) || s.title || 'Без названия';
     const project = projectOfSession(s.sessionId);
-    el.append(h('button', { class: `s-item${s.sessionId === S.current ? ' on' : ''}${conv && conv.waiting ? ' waits' : ''}`,
-      title: project ? `${title}\nПроект: ${project.name}` : title, onclick: () => selectConv(s.sessionId) },
+    const kept = S.stored.has(s.sessionId);
+    const del = h('span', { class: 's-del', role: 'button', tabindex: '0', title: 'Удалить разговор', onclick: (e) => { e.stopPropagation(); deleteConv(s.sessionId); } }, icon('trash', 'sm'));
+    el.append(h('button', { class: `s-item${s.sessionId === S.current ? ' on' : ''}${conv && conv.waiting ? ' waits' : ''}${kept ? ' kept' : ''}`,
+      title: `${project ? `${title}\nПроект: ${project.name}` : title}${kept ? '\nИстория хранится на этом компьютере' : ''}`,
+      onclick: () => selectConv(s.sessionId) },
     h('span', { class: 't' }, project ? h('i', { class: 's-project', text: project.name }) : null, title), busy ? h('span', { class: 'busy', title: conv.waiting ? 'Ждёт вашего ответа' : 'Работает' })
-      : h('span', { class: 'when', text: when(s.updatedAt, { short: true }) })));
+      : h('span', { class: 'when', text: when(s.updatedAt, { short: true }) }), del));
   }
   if (S.cursor && !q) el.append(h('button', { class: 's-more', text: 'Показать ещё', onclick: () => loadSessions(true) }));
 }
@@ -1010,6 +1149,7 @@ async function main() {
     }
     toast(text, kind || 'info', 15000);
   });
+  loadStored();
   const reopen = localStorage.getItem('sysai.pane.open');
   if (reopen === 'files' || reopen === 'storage' || reopen === 'canvas') pane.show(reopen);
   // «Ничего не прилетало» больше не должно быть молчаливым: спрашиваем SYSAI при запуске и раз в полчаса.

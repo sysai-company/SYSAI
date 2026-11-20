@@ -18,6 +18,7 @@ const rules = require('../lib/rules');
 const { AutoApprove, MAX_PER_HOUR } = require('../lib/autoapprove');
 const storage = require('../lib/storage');
 const apps = require('../lib/apps');
+const chats = require('../lib/chats');
 
 const FAKE = path.join(__dirname, 'fake-hermes.js');
 const UIMCP = path.join(__dirname, '..', 'lib', 'uimcp.js');
@@ -1339,4 +1340,98 @@ test('обновление: «установить» только просит �
   fs.writeFileSync(path.join(home, 'run.lock'), '1');
   assert.equal(updates.wake(home).asking, true);
   assert.equal(fs.readFileSync(path.join(home, 'wake'), 'utf8'), 'wake');
+});
+
+// ---------------------------------------------------------------- разговоры окна на этом компьютере (lib/chats.js)
+test('a conversation is kept on this computer and comes back whole after a restart', async () => {
+  const home = tmp();
+  try {
+    await chats.write(home, { id: 'abc-1', hermes: 'abc-1', title: 'Нория', project: 'Достоево',
+      cwd: 'C:\\Проекты\\Достоево', messages: [{ t: 'user', text: 'посмотри шнек' }, { t: 'agent', text: 'смотрю' }] });
+    const listed = await chats.list(home);
+    assert.equal(listed.dialogs.length, 1);
+    assert.equal(listed.dialogs[0].title, 'Нория');
+    assert.equal(listed.dialogs[0].messages, 2);
+    assert.equal(listed.dialogs[0].project, 'Достоево');
+    const back = await chats.read(home, 'abc-1');
+    assert.deepEqual(back.messages.map((m) => m.t), ['user', 'agent'], 'что было сказано — на месте');
+    assert.equal(back.cwd, 'C:\\Проекты\\Достоево', 'папка разговора (в ней он и продолжится)');
+    // следующий ответ дописывается: заголовок и начало разговора не теряются
+    await chats.write(home, { id: 'abc-1', messages: [{ t: 'user', text: 'ещё' }] });
+    const again = await chats.read(home, 'abc-1');
+    assert.equal(again.title, 'Нория');
+    assert.equal(again.created, back.created, 'дата начала не переписывается');
+    assert.equal(again.messages.length, 1);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a deleted conversation stays deleted even though the agent still lists its session', async () => {
+  const home = tmp();
+  try {
+    await chats.write(home, { id: 'gone-1', title: 'Старый', messages: [{ t: 'user', text: 'привет' }] });
+    await chats.remove(home, 'gone-1');
+    const listed = await chats.list(home);
+    assert.equal(listed.dialogs.length, 0, 'файла нет — в списке нет');
+    assert.deepEqual(listed.deleted, ['gone-1'], 'надгробие: сессия Hermes не воскресит разговор');
+    assert.equal(await chats.read(home, 'gone-1'), null);
+    // удаление того, чего нет, — не ошибка (окно могло нажать дважды)
+    await chats.remove(home, 'gone-1');
+    assert.deepEqual((await chats.list(home)).deleted, ['gone-1']);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a conversation cannot point outside the folder of conversations', async () => {
+  const home = tmp();
+  try {
+    await chats.write(home, { id: '../../evil', title: 'x', messages: [{ t: 'user', text: 'x' }] });
+    const names = fs.readdirSync(chats.dir(home)).filter((n) => n.endsWith('.json'));
+    assert.deepEqual(names, ['evil.json'], 'имя очищено, за папку не вышли');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('the conversations of a project go with the project', async () => {
+  const home = tmp();
+  try {
+    await chats.write(home, { id: 'p-1', project: 'Достоево', messages: [{ t: 'user', text: 'x' }] });
+    await chats.write(home, { id: 'p-2', project: 'Родина', messages: [{ t: 'user', text: 'y' }] });
+    const done = await chats.removeProject(home, 'Достоево');
+    assert.equal(done.removed, 1);
+    const left = (await chats.list(home)).dialogs;
+    assert.deepEqual(left.map((d) => d.id), ['p-2'], 'чужие разговоры не тронуты');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- «Удалить проект»
+test('a project goes to the trash of the projects folder, not into nothing', async () => {
+  const root = path.join(tmp(), 'SYSAI Проекты');
+  const pj = new Projects(root);
+  await pj.create('Достоево');
+  fs.writeFileSync(path.join(pj.dir('Достоево'), 'materials', 'схема.txt'), 'Э3', 'utf8');
+  const other = await pj.create('Родина');
+  const done = await pj.remove('Достоево', 'trash');
+  assert.equal(done.mode, 'trash');
+  assert.ok(fs.existsSync(done.path), 'папка лежит в .trash');
+  assert.equal(fs.readFileSync(path.join(done.path, 'materials', 'схема.txt'), 'utf8'), 'Э3', 'материалы целы');
+  assert.equal(fs.existsSync(pj.dir('Достоево')), false, 'из проектов ушёл');
+  const list = await pj.list();
+  assert.deepEqual(list.projects.map((p) => p.name), [other.name], 'в списке проектов его нет, .trash не проект');
+});
+
+test('a project is erased together with its materials on request', async () => {
+  const pj = new Projects(path.join(tmp(), 'SYSAI Проекты'));
+  await pj.create('Достоево');
+  const done = await pj.remove('Достоево', 'erase');
+  assert.equal(done.mode, 'erase');
+  assert.equal(fs.existsSync(pj.dir('Достоево')), false);
+  assert.deepEqual((await pj.list()).projects, []);
+  await assert.rejects(() => pj.remove('Достоево', 'erase'), /нет такого проекта/, 'второй раз — честная ошибка');
+  await assert.rejects(() => pj.remove('../SYSAI Проекты', 'erase'), /нет такого проекта|названии/, 'за папку проектов не выйти');
 });
