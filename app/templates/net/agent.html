@@ -34,6 +34,13 @@
 </details>
 {% endif %}
 
+<section class="card" id="address"><h2>Адрес службы для агента</h2>
+  <p>По этому адресу агент ходит к моделям и инструментам — он должен открываться с рабочего ПК.</p>
+  <dl class="net-kv"><dt>Служба</dt><dd><a href="{{ server }}" target="_blank">{{ server }}</a></dd>
+    <dt>Шлюз моделей</dt><dd><a href="{{ server }}/v1/models" target="_blank">{{ server }}/v1/models</a> — без токена должен ответить «401», а не «404»</dd></dl>
+  <p class="small muted">Ответ «404 — Resource not found» на этом адресе значит, что запрос не дошёл до SYSAI: чаще всего в адресе нет пути, под которым приложение смонтировано (например <code>/apps/sysai</code>), или он ведёт на старый хост — тогда и модели «не отвечают». Задайте <code>PUBLIC_URL</code> ровно тем адресом, что в браузере, и перезапустите службу; на ПК затем «Обновить сейчас» (или пульс) — агент перепишет конфиг Hermes.</p>
+</section>
+
 <div class="stats">
   <div class="stat"><b>{{ net_when(a.last_seen_at) if a.last_seen_at else '—' }}</b><span>на связи</span></div>
   <div class="stat"><b>${{ '%.2f'|format(spend.today) }}</b><span>сегодня · бюджет ${{ '%.2f'|format(rules.models.budget_day_usd) }}{{ '' if rules.models.budget_day_usd else ' (без лимита)' }}</span></div>

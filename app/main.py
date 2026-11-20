@@ -287,7 +287,7 @@ STARTED = time.time()
 
 
 @app.get("/health")
-async def health():
+async def health(request: Request):
     """No database and no thread pool: the platform's port and health checks must pass even while Neon wakes up or
     Telegram is slow. `commit` says which version really runs (Render sets RENDER_GIT_COMMIT). `sync` and `build` say
     which synchronizer this deployment gives out — one request tells whether «обновление не приходит» because the
@@ -300,6 +300,14 @@ async def health():
         out["build"] = installer.build()[:12]
     except Exception:  # noqa: BLE001 — health check answers even when the synchronizer sources are unreadable
         out["sync"] = ""
+    # The address the agents are given in their signed document. Behind a platform that mounts the app under a
+    # prefix (Hostless: /apps/sysai) a mismatch here is the difference between the gateway and a platform 404:
+    # compare `public` with what the browser shows, and `public`+/v1/models must answer with the gateway's JSON.
+    try:
+        from .net.routes import _server
+        out["public"] = _server(request)
+    except Exception:  # noqa: BLE001 — never take the health check down for a diagnostic
+        out["public"] = ""
     return out
 
 

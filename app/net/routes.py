@@ -49,7 +49,23 @@ def _back(url: str, msg: str = "", error: str = "") -> RedirectResponse:
 
 
 def _server(request: Request) -> str:
-    return (config.PUBLIC_URL or str(request.base_url)).rstrip("/")
+    """The address the agent will be given in its signed document (gateway, MCP, installer) — it must be the address
+    that actually reaches this app.
+
+    PUBLIC_URL wins when set. Without it the address comes from the request — and behind a platform that mounts the
+    app under a prefix (Hostless: `/apps/sysai`, or any reverse proxy that strips the path), `request.base_url` loses
+    that prefix, so the agent got `https://host/v1` and every model call ended in the platform's 404 «Resource not
+    found» instead of the gateway. `X-Forwarded-Prefix` and the ASGI `root_path` carry the mount point; put it back.
+    """
+    if config.PUBLIC_URL:
+        return config.PUBLIC_URL.rstrip("/")
+    base = str(request.base_url).rstrip("/")
+    for prefix in (request.headers.get("x-forwarded-prefix") or "",
+                   request.scope.get("root_path") or ""):
+        prefix = prefix.strip().rstrip("/")
+        if prefix and not base.endswith(prefix):
+            base += prefix if prefix.startswith("/") else "/" + prefix
+    return base
 
 
 def _ip(request: Request) -> str:
@@ -228,7 +244,7 @@ def _agent_view(request: Request, me: dict, agent_id: int, msg: str = "", error:
                  overrides=json.dumps(doc["overrides"] or {}, ensure_ascii=False, indent=2),
                  sections=access.SECTION_RU, tier_ru=access.TIER_RU, scope_ru=access.SCOPE_RU, level_ru=access.LEVEL_RU,
                  internet_ru=access.INTERNET_RU, harnesses=agents.HARNESSES, ttl=int(agents.CODE_TTL.total_seconds() // 60),
-                 sync_version=installer.version(), **_choices())
+                 sync_version=installer.version(), sync_build=installer.build()[:12], **_choices())
 
 
 @router.get("/agents/{agent_id:int}", response_class=HTMLResponse)

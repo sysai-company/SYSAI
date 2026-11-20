@@ -108,6 +108,41 @@ def test_the_agents_page_shows_the_version_the_computer_reports(client, net_agen
     assert f"синхр. {installer.version()}" in page and "обновляется</span>" not in page
 
 
+def test_the_agent_gets_the_address_the_app_is_really_mounted_under(client, net_agent):
+    """Адрес агента — тот, что действительно доходит до приложения.
+
+    Hostless монтирует приложение под путём (`/apps/sysai`), а `request.base_url` этот путь теряет, если платформа
+    не задаёт root_path: агент получал `https://host/v1` и каждый вызов модели кончался страницей платформы
+    «404 — Resource not found» вместо шлюза SYSAI. `X-Forwarded-Prefix` (и root_path) возвращают путь на место.
+    """
+    from starlette.requests import Request
+    from app.net import routes as net_routes
+    from app import config
+
+    def scope(prefix="", root=""):
+        headers = [(b"x-forwarded-prefix", prefix.encode())] if prefix else []
+        return {"type": "http", "method": "GET", "path": "/agents", "root_path": root, "scheme": "https",
+                "server": ("sysai.example", 443), "headers": headers, "query_string": b""}
+
+    public = config.PUBLIC_URL
+    config.PUBLIC_URL = ""
+    try:
+        assert net_routes._server(Request(scope())) == "https://sysai.example"
+        assert net_routes._server(Request(scope(prefix="/apps/sysai"))) == "https://sysai.example/apps/sysai"
+        assert net_routes._server(Request(scope(root="/apps/sysai"))) == "https://sysai.example/apps/sysai"
+        assert net_routes._server(Request(scope(prefix="apps/sysai"))) == "https://sysai.example/apps/sysai"
+        config.PUBLIC_URL = "https://public.example/apps/sysai"
+        assert net_routes._server(Request(scope(prefix="/other"))) == "https://public.example/apps/sysai", \
+            "PUBLIC_URL главнее заголовков"
+    finally:
+        config.PUBLIC_URL = public
+
+    health = client.get("/health").json()
+    assert health["public"].startswith("http"), "адрес, который получит агент, виден в /health"
+    page = client.get(f"/agents/{net_agent['id']}").text
+    assert "/v1/models" in page and "401" in page, "страница агента говорит, каким должен быть ответ шлюза"
+
+
 def test_a_reinstall_needs_no_code_and_keeps_the_connection(client, net_agent):
     """Переустановка — путь для машины, которая не может обновиться сама.
 
