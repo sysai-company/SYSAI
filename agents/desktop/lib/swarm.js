@@ -30,6 +30,16 @@ function clampCells(n) {
   return Math.max(MIN_CELLS, Math.min(MAX_CELLS, v));
 }
 
+// Что разрешено рою по подписанным доступам (раздел swarm): включён ли, сколько сот и сколько из них разом. Документ
+// старого SYSAI «at» не называет — тогда как было: CONCURRENCY. Разом никогда не больше, чем сот.
+function allowedOf(rules) {
+  const sw = (rules && typeof rules.swarm === 'object' && rules.swarm) || {};
+  const cells = Number.parseInt(sw.cells, 10) > 0 ? Number.parseInt(sw.cells, 10) : 0;
+  const said = Number.parseInt(sw.at, 10);
+  const at = Math.max(1, Math.min(Number.isFinite(said) && said > 0 ? said : CONCURRENCY, cells || MAX_CELLS));
+  return { on: Boolean(sw.on), cells, at };
+}
+
 function group(items, cells) {
   const list = items.filter((x) => String(x || '').trim());
   if (!list.length) return [];
@@ -374,5 +384,5 @@ class Swarm extends EventEmitter {
 
 module.exports = {
   Swarm, MIN_CELLS, MAX_CELLS, DEFAULT_CELLS, DEFAULT_MINUTES, CONCURRENCY, ANSWER_RULE,
-  clampCells, chunk, cellPrompt, planPrompt, parseAnswer, jsonOf, conflicts, report, writeOut,
+  clampCells, allowedOf, chunk, cellPrompt, planPrompt, parseAnswer, jsonOf, conflicts, report, writeOut,
 };

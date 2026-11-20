@@ -28,7 +28,7 @@ const rules = require('./lib/rules');
 const { AutoApprove } = require('./lib/autoapprove');
 const apps = require('./lib/apps');
 const updates = require('./lib/updates');
-const { Swarm } = require('./lib/swarm');
+const { Swarm, allowedOf: swarmAllowedOf } = require('./lib/swarm');
 const relaunch = require('./lib/relaunch');
 const pkg = require('./package.json');
 
@@ -828,8 +828,7 @@ async function askSwarm({ prompt }) {
 // Соты — это настройка профиля из подписанного документа доступов: окно не решает само, сколько их.
 function swarmAllowed() {
   const got = rules.load(HOME);
-  const sw = (got && got.rules && got.rules.swarm) || {};
-  return { on: Boolean(sw.on), cells: Number(sw.cells) || 0, why: (got && got.error) || '' };
+  return { ...swarmAllowedOf(got && got.rules), why: (got && got.error) || '' };
 }
 
 function swarmSend(state) {
@@ -1068,7 +1067,7 @@ function ipc() {
   handle('swarm:start', async (opts) => {
     if (swarm) throw new Error('рой уже идёт: дождитесь отчёта или остановите его');
     const allow = swarmAllowed();
-    if (!allow.on) throw new Error('соты не включены для профиля: SYSAI → Доступы → Соты — включите и задайте число');
+    if (!allow.on) throw new Error('соты не включены: SYSAI → Сеть агентов → Соты — включите и задайте число');
     const o = opts && typeof opts === 'object' ? opts : {};
     const question = String(o.question || '').trim();
     if (!question) throw new Error('рой без задачи: напишите, что проверять');
@@ -1076,7 +1075,7 @@ function ipc() {
     const root = o.project ? path.join(String(o.project), '.sysai', 'swarm') : path.join(DESK, 'swarm');
     swarmCwd = o.project ? String(o.project) : '';
     swarm = new Swarm({ question, items: Array.isArray(o.items) ? o.items : [], cells, minutes: o.minutes,
-      ask: askSwarm, root, arbiter: true });
+      ask: askSwarm, root, arbiter: true, concurrency: allow.at });
     const mine = swarm;
     mine.on('state', (s) => swarmSend(s));
     mine.run().then((state) => {

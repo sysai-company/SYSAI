@@ -1564,6 +1564,39 @@ test('the swarm runs its cells, counts them and names what disagrees', async () 
   }
 });
 
+test('the swarm never runs more cells at once than the access document allows', async () => {
+  // «разом» из документа: срезается до числа сот; старый документ без «at» — как раньше, шесть
+  assert.deepEqual(swarmLib.allowedOf({ swarm: { on: true, cells: 12, at: 3 } }), { on: true, cells: 12, at: 3 });
+  assert.equal(swarmLib.allowedOf({ swarm: { on: true, cells: 5, at: 30 } }).at, 5);
+  assert.equal(swarmLib.allowedOf({ swarm: { on: true, cells: 12 } }).at, swarmLib.CONCURRENCY);
+  assert.equal(swarmLib.allowedOf({ swarm: { on: true, cells: 12, at: 0 } }).at, swarmLib.CONCURRENCY);
+  assert.deepEqual(swarmLib.allowedOf(undefined), { on: false, cells: 0, at: swarmLib.CONCURRENCY });
+
+  const allow = swarmLib.allowedOf({ swarm: { on: true, cells: 8, at: 2 } });
+  let now = 0;
+  let most = 0;
+  const swarm = new swarmLib.Swarm({
+    question: 'сверь', items: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], cells: allow.cells, minutes: 1,
+    plan: false, arbiter: false, concurrency: allow.at,
+    ask: async () => {
+      now += 1;
+      most = Math.max(most, now);
+      await new Promise((r) => setTimeout(r, 5));
+      now -= 1;
+      return '<answer>{"checked":1,"found":[],"missing":[],"notes":""}</answer>';
+    },
+  });
+  const state = await swarm.run();
+  assert.equal(state.counters.done, 8);
+  assert.equal(most, 2, 'одновременно ровно столько, сколько разрешили, а не шесть');
+});
+
+test('the window starts the swarm with the allowed «at once», not a fixed six', () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert.match(main, /swarmAllowedOf\(got && got\.rules\)/, 'разрешённое читается из подписанных доступов');
+  assert.match(main, /new Swarm\(\{[^}]*concurrency: allow\.at/s, 'рой идёт с разрешённым «разом»');
+});
+
 test('a cell that does not answer in time becomes «не успел», not a broken swarm', async () => {
   const swarm = new swarmLib.Swarm({
     question: 'долгая проверка', items: ['A', 'B'], cells: 2, minutes: 0.02, plan: false, arbiter: false,

@@ -345,11 +345,11 @@ def test_the_swarm_setting_limits_the_honeycomb_and_a_change_reaches_the_agent(c
     """Соты: включены или нет и сколько их — это раздел профиля, как нейронки или хранилище. Число сот ограничено
     разумным (4–40), и изменение числа — новая редакция документа, иначе агент не узнает, что ему разрешили рой."""
     rules = access.normalize({})
-    assert rules["swarm"] == {"on": False, "cells": 8}, "по умолчанию соты выключены"
+    assert rules["swarm"] == {"on": False, "cells": 8, "at": 6}, "по умолчанию соты выключены"
     # из формы: включили и захотели больше, чем разрешено — получают предел, а не молчаливое «сколько сказали»
-    assert access.normalize({"swarm": {"on": True, "cells": 400}})["swarm"] == {"on": True, "cells": 40}
-    assert access.normalize({"swarm": {"on": True, "cells": 1}})["swarm"] == {"on": True, "cells": 4}
-    assert access.normalize({"swarm": {"on": "да", "cells": "12"}})["swarm"] == {"on": True, "cells": 12}
+    assert access.normalize({"swarm": {"on": True, "cells": 400}})["swarm"] == {"on": True, "cells": 40, "at": 6}
+    assert access.normalize({"swarm": {"on": True, "cells": 1}})["swarm"] == {"on": True, "cells": 4, "at": 4}
+    assert access.normalize({"swarm": {"on": "да", "cells": "12"}})["swarm"] == {"on": True, "cells": 12, "at": 6}
     assert access.normalize({"swarm": {"cells": "коты"}})["swarm"]["cells"] == 8
 
     pid = _profile("opo-engineer").id
@@ -358,7 +358,7 @@ def test_the_swarm_setting_limits_the_honeycomb_and_a_change_reaches_the_agent(c
     access.save_profile(pid, "Инженер ОПО", "", dict(base, swarm={"on": True, "cells": 12}), by="boss")
     try:
         after = access.document(net_agent["id"], "https://sysai.example")
-        assert after["rules"]["swarm"] == {"on": True, "cells": 12}
+        assert after["rules"]["swarm"] == {"on": True, "cells": 12, "at": 6}
         assert after["rev"] != before, "новая редакция: агент применит её при следующей синхронизации"
         page = client.get("/agents/access")
         assert page.status_code == 200
@@ -366,3 +366,73 @@ def test_the_swarm_setting_limits_the_honeycomb_and_a_change_reaches_the_agent(c
         assert "Соты" in page.text
     finally:
         access.save_profile(pid, "Инженер ОПО", "", base, by="boss")
+
+
+def test_how_many_cells_work_at_once_is_clamped_by_the_cells(client):
+    """«Одновременно» — не больше, чем сот, и не меньше одной; мусор — шесть, как окно работало до настройки."""
+    assert access.normalize({"swarm": {"cells": 10, "at": 25}})["swarm"]["at"] == 10
+    assert access.normalize({"swarm": {"cells": 10, "at": 0}})["swarm"]["at"] == 1
+    assert access.normalize({"swarm": {"cells": 10, "at": "коты"}})["swarm"]["at"] == 6
+    assert access.normalize({"swarm": {"cells": 10, "at": "3"}})["swarm"]["at"] == 3
+
+
+def test_saving_a_profile_keeps_how_many_work_at_once(client, net_agent):
+    """Форма профиля несёт «одновременно»: сохранили профиль — число не сбросилось к умолчанию."""
+    form = {"swarm_on": "on", "swarm_cells": "12", "swarm_at": "9"}
+    assert access.rules_from_form(form)["swarm"] == {"on": True, "cells": 12, "at": 9}
+    pid = _profile("opo-engineer").id
+    base = next(p["rules"] for p in access.profiles() if p["id"] == pid)
+    access.save_profile(pid, "Инженер ОПО", "", dict(base, swarm={"on": True, "cells": 12, "at": 9}), by="boss")
+    try:
+        page = client.get("/agents/access").text
+        assert 'name="swarm_at"' in page and 'value="9"' in page
+        assert access.document(net_agent["id"])["rules"]["swarm"]["at"] == 9
+    finally:
+        access.save_profile(pid, "Инженер ОПО", "", base, by="boss")
+
+
+def test_the_swarm_is_switched_for_one_person_on_the_honeycomb_page(client, net_agent):
+    """«Сеть агентов → Соты»: нажатие на соту включает рой одному человеку: его документ — новая редакция с роем,
+    документ соседа по тому же профилю — без; прочие личные исключения человека не теряются."""
+    with SessionLocal() as s:
+        admin = s.query(User).filter(User.role == "superuser").first()
+        admin_id = admin.id
+    other = agents.create(admin_id, "opo-second", net_agent["department_id"], None, "hermes", "", by="test")
+    access.set_agent_access(net_agent["id"], overrides={"models": {"budget_day_usd": 7.25}})
+    before = access.document(net_agent["id"])["rev"]
+    other_before = access.document(other.id)["rev"]
+
+    html = client.get("/agents/swarm").text
+    assert 'href="/agents/swarm"' in html, "«Соты» в группе «Сеть агентов»"
+    assert f'data-agent="{net_agent["id"]}"' in html and f'data-agent="{other.id}"' in html, "сота на каждого"
+    assert f'action="/agents/swarm/{net_agent["id"]}"' in html
+
+    r = client.post(f"/agents/swarm/{net_agent['id']}", data={"on": "1", "cells": "12", "at": "30"}, follow_redirects=False)
+    assert r.status_code == 303
+    mine = access.document(net_agent["id"])
+    assert mine["rules"]["swarm"] == {"on": True, "cells": 12, "at": 12}, "«разом» срезано до числа сот"
+    assert mine["rev"] != before, "новая редакция: ПК примет её со следующим пульсом"
+    assert mine["rules"]["models"]["budget_day_usd"] == 7.25, "другие исключения на месте"
+    theirs = access.document(other.id)
+    assert theirs["rules"]["swarm"]["on"] is False and theirs["rev"] == other_before, "соседу ничего не включили"
+    assert access.sign(mine["doc"])["doc"]["rules"]["swarm"]["on"] is True
+
+    page = client.get(f"/agents/swarm?pick={net_agent['id']}").text
+    assert "12 сот · 12 разом" in page
+    client.post(f"/agents/swarm/{net_agent['id']}", data={"cells": "12", "at": "6"})  # снова нажали — выключили
+    assert access.document(net_agent["id"])["rules"]["swarm"]["on"] is False
+
+
+def test_only_an_admin_opens_the_honeycomb(client, net_on):
+    from fastapi.testclient import TestClient
+    from app import accounts
+    from app.main import app
+    accounts.register("petr", "correct-horse")
+    with SessionLocal() as s:
+        s.query(User).filter_by(username="petr").one().status = "approved"
+        s.commit()
+    with TestClient(app) as c:
+        c.post("/login", data={"username": "petr", "password": "correct-horse"})
+        assert 'href="/agents/swarm"' not in c.get("/app").text
+        assert c.get("/agents/swarm", follow_redirects=False).status_code != 200
+        assert c.post("/agents/swarm/1", data={"on": "1"}, follow_redirects=False).status_code != 303

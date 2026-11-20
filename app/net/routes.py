@@ -358,6 +358,33 @@ async def agent_action(request: Request, agent_id: int, action: str):
     raise HTTPException(404, "Нет такого действия")
 
 
+# ============================================================================= pages: the swarm («Соты»)
+@router.get("/agents/swarm", response_class=HTMLResponse)
+def swarm_page(request: Request, msg: str = "", error: str = "", pick: str = ""):
+    """«Соты — рой агентов»: сота на человека с агентом; включить рой, число сот и сколько работают разом — каждому
+    свои (личные исключения агента, раздел swarm), без правки общего профиля."""
+    me = _person(request, admin=True)
+    cells = []
+    for a in agents.listing(me):
+        doc = access.document(a["id"])
+        cells.append({**a, "swarm": doc["rules"]["swarm"], "own": "swarm" in (doc["overrides"] or {})})
+    chosen = next((c for c in cells if str(c["id"]) == pick), cells[0] if cells else None)
+    return _page(request, "net/swarm.html", cells=cells, chosen=chosen, msg=msg, error=error,
+                 limits=access.SWARM_CELLS, section=access.SECTION_RU["swarm"])
+
+
+@router.post("/agents/swarm/{agent_id:int}")
+async def swarm_save(request: Request, agent_id: int):
+    me = _person(request, admin=True)
+    form = await request.form()
+    try:
+        got = access.set_agent_swarm(agent_id, bool(form.get("on")), form.get("cells"), form.get("at"), by=me["username"])
+    except access.AccessError as exc:
+        return _back(f"/agents/swarm?pick={agent_id}", error=str(exc))
+    said = (f"рой включён: {got['cells']} сот, разом {got['at']}" if got["on"] else "рой выключен")
+    return _back(f"/agents/swarm?pick={agent_id}", msg=f"Сохранено — {said}. Агент применит при следующей синхронизации")
+
+
 # ============================================================================= pages: access profiles
 @router.post("/agents/access/jev-probe")
 def access_jev_probe(request: Request):

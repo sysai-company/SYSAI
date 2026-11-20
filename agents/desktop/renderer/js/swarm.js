@@ -118,7 +118,7 @@ export class SwarmPanel {
     this.box.append(head);
 
     if (!this.allowed.on) {
-      this.box.append(h('p', { class: 'swarm-text', text: 'Соты для этого профиля выключены. Включить: SYSAI → Доступы → «Соты — рой агентов» — тумблер и число сот. Права у роя только на чтение.' }));
+      this.box.append(h('p', { class: 'swarm-text', text: 'Соты для вас выключены. Включает администратор: SYSAI → Сеть агентов → Соты — ваша сота, число сот и сколько разом. Права у роя только на чтение.' }));
       return;
     }
 

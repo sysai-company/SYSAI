@@ -95,7 +95,8 @@ EMPTY = {
     "edits": {"auto": "projects"},
     # Соты: сколько агентов может работать разом, когда инженер запускает рой на проверку спецификации и поиск.
     # Включено или нет — решает человек в настройках профиля; число сот не больше разрешённого (SWARM_CELLS).
-    "swarm": {"on": False, "cells": 8},
+    # «at» — сколько сот работают одновременно (остальные ждут очереди): не больше, чем сот.
+    "swarm": {"on": False, "cells": 8, "at": 6},
 }
 # Разрешённое число сот: меньше четырёх — это не рой, больше сорока — уже не читают, а мешают друг другу
 SWARM_CELLS = (4, 40)
@@ -269,8 +270,12 @@ def normalize(rules) -> dict:
         cells = int(sw.get("cells", 8))
     except (TypeError, ValueError):
         cells = 8
-    out["swarm"] = {"on": bool(sw.get("on", False)),
-                    "cells": max(SWARM_CELLS[0], min(SWARM_CELLS[1], cells))}
+    cells = max(SWARM_CELLS[0], min(SWARM_CELLS[1], cells))
+    try:
+        at = int(sw.get("at", EMPTY["swarm"]["at"]))
+    except (TypeError, ValueError):
+        at = EMPTY["swarm"]["at"]
+    out["swarm"] = {"on": bool(sw.get("on", False)), "cells": cells, "at": max(1, min(cells, at))}
     ed = rules.get("edits") if isinstance(rules.get("edits"), dict) else {}
     out["edits"] = {"auto": ed.get("auto") if ed.get("auto") in EDITS else "projects"}
     pl = rules.get("plc") if isinstance(rules.get("plc"), dict) else {}
@@ -564,6 +569,20 @@ def set_agent_access(agent_id: int, profile_id=KEEP, overrides=None, by: str = "
         journal.log("access.agent", agent.name, journal.changes(before, {"профиль": row.profile_id, "исключения": row.overrides}),
                     actor=by, agent_id=agent.id, session=s)
         s.commit()
+
+
+def set_agent_swarm(agent_id: int, on: bool, cells, at, by: str = "") -> dict:
+    """Соты одного человека («Сеть агентов → Соты»): меняется только раздел `swarm` его личных исключений, остальные
+    исключения и профиль остаются как были. -> the swarm the agent gets now."""
+    with SessionLocal() as s:
+        if s.get(NetAgent, agent_id) is None:
+            raise AccessError("Нет такого агента")
+        row = s.query(NetAgentAccess).filter(NetAgentAccess.agent_id == agent_id).first()
+        overrides = dict(row.overrides or {}) if row else {}
+    swarm = normalize({"swarm": {"on": bool(on), "cells": cells, "at": at}})["swarm"]
+    overrides["swarm"] = swarm
+    set_agent_access(agent_id, KEEP, overrides, by=by)
+    return swarm
 
 
 # ----------------------------------------------------------------------------- the document an agent gets
@@ -875,5 +894,5 @@ def rules_from_form(form) -> dict:
         "files": {"read": lines("files_read"), "write": lines("files_write")},
         "plc": {"hosts": lines("plc_hosts")},
         "edits": {"auto": get("edits_auto")},
-        "swarm": {"on": bool(get("swarm_on")), "cells": get("swarm_cells")},
+        "swarm": {"on": bool(get("swarm_on")), "cells": get("swarm_cells"), "at": get("swarm_at")},
     })

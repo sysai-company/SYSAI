@@ -324,3 +324,20 @@ details[open] > .ac-head { border-bottom: 1px solid var(--line); border-radius: 
 .comb .cell.on { background: color-mix(in srgb, var(--clay) 65%, transparent); }
 .comb-side { min-width: 240px; flex: 1 1 260px; }
 @media (max-width: 560px) { .comb { grid-template-columns: repeat(6, 16px); } .comb .cell { width: 16px; height: 14px; } }
+.comb .cell.run { background: var(--green); }
+
+/* «Сеть агентов → Соты»: сота на человека; нажатие включает или выключает ему рой */
+.hive { display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 4px 0 18px; }
+.hive form { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0; }
+.hive .hx { width: 150px; height: 132px; padding: 16px; border: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1px; text-align: center; cursor: pointer; color: var(--text); font: inherit; background: var(--card2);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); transition: background .15s; }
+.hive .hx b { font-size: 13.5px; font-weight: 600; line-height: 1.25; }
+.hive .hx .small { color: var(--muted); }
+.hive .hx-st { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.hive .hx.on { background: color-mix(in srgb, var(--green) 22%, var(--card2)); } .hive .hx.on .hx-st { color: var(--green); }
+.hive .hx.off { opacity: .8; } .hive .hx:hover { background: var(--line2); } .hive .hx.on:hover { background: color-mix(in srgb, var(--green) 32%, var(--card2)); }
+.hive .hx.picked b { color: var(--clay); } .hive .hx.picked::after { content: ""; width: 18px; height: 3px; margin-top: 6px; border-radius: 2px; background: var(--clay); }
+.hive .hx:focus-visible { background: var(--line2); }
+.hive .hx-edit { color: var(--muted); } .hive .hx-edit:hover { color: var(--text); }
+@media (max-width: 560px) { .hive .hx { width: 110px; height: 98px; padding: 8px; } .hive .hx b { font-size: 12.5px; } }
