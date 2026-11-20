@@ -2,7 +2,7 @@
 name: haiwell-happy
 kind: mcp
 description: Программа для контроллера Haiwell Happy из спецификации проекта — списком инструкций (STL, штатный язык среды, LD ↔ STL по F7), лестницей и таблицей адресов X/Y/M/T/D. Сам файл .gpc закрытый (сжатие вендора) — он не пишется и не читается, программа отдаётся так, что её вставляют в Haiwell Happy и сохраняют там.
-version: 1.1.0
+version: 1.2.0
 run: python server.py
 platform: any
 tools: hawell_program, hawell_export, hawell_read, hawell_info, hawell_check
@@ -21,7 +21,7 @@ Haiwell — отдельная среда программирования ко�
 | Инструмент | Что делает |
 |---|---|
 | `hawell_program` | собирает программу из `project.spec.json` и показывает: схемы списком инструкций, таблицу сигналов и адресов, замечания. Ничего не пишет — посмотреть и согласовать. |
-| `hawell_export` | пишет папку `hawell/` рядом с проектом: `program.il` (список инструкций), `program.ld.txt` (та же схема лестницей), `io.csv` (сигнал → адрес), `README.txt` (шаги в Haiwell Happy). |
+| `hawell_export` | пишет папку `hawell/` рядом с проектом: `program.il` (список инструкций), `program.ld.txt` (та же схема лестницей), `io.csv` (сигнал → адрес), `comments.txt` (подписи компонентов для File → Import → Component comment table), `README.txt` (шаги в Haiwell Happy). |
 | `hawell_read` | читает записанное обратно: адреса из `io.csv`, проверка «один адрес — один сигнал», только известные инструкции в `program.il`. |
 | `hawell_info` | что за файл `.gpc`: заголовок, размер, энтропия тела. `decoded: false` — состояние формата, не ошибка. |
 | `hawell_check` | то же плюс находки: нет заголовка, огрызок, состояние разбора. |

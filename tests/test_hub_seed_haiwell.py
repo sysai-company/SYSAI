@@ -100,7 +100,8 @@ def test_no_gpc_file_is_ever_written(tmp_path):
 def test_the_program_is_exported_as_instructions_a_ladder_and_an_io_table(tmp_path):
     got = hawell.export(_spec(tmp_path), tmp_path)
     folder = tmp_path / "hawell"
-    assert sorted(p.name for p in folder.iterdir()) == ["README.txt", "io.csv", "program.il", "program.ld.txt"]
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "README.txt", "comments.txt", "io.csv", "program.il", "program.ld.txt"]
     il = (folder / "program.il").read_text(encoding="utf-8")
     assert "OUT Y0" in il and "END" in il
     assert "Схема 1." in il and "Нория 1: пуск" in il
@@ -162,7 +163,7 @@ def test_the_same_specification_gives_the_same_files(tmp_path):
     for folder in (first, second):
         folder.mkdir()
         hawell.export(_spec(folder), folder)
-    for name in ("program.il", "program.ld.txt", "io.csv", "README.txt"):
+    for name in ("program.il", "program.ld.txt", "io.csv", "comments.txt", "README.txt"):
         assert (first / "hawell" / name).read_bytes() == (second / "hawell" / name).read_bytes(), name
 
 
@@ -193,7 +194,7 @@ def test_the_server_says_which_environment_it_is():
                          input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n",
                          capture_output=True, text=True, encoding="utf-8", timeout=120)
     got = json.loads(out.stdout.strip().splitlines()[0])["result"]
-    assert got["serverInfo"] == {"name": "haiwell-happy", "title": "Haiwell Happy (.gpc, LD)", "version": "1.1.0"}
+    assert got["serverInfo"] == {"name": "haiwell-happy", "title": "Haiwell Happy (.gpc, LD)", "version": "1.2.0"}
     assert "STL" in got["instructions"] and "закрытое сжатие" in got["instructions"]
 
 

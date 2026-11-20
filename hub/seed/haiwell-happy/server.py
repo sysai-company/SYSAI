@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hawell  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 PATH = {"type": "string", "description": r"Файл проекта Haiwell Happy (.gpc), например C:\Projects\line\plc\Line.gpc"}
 SPEC = {"type": "string", "description": r"Файл спецификации проекта (_work\spec\project.spec.json) — его делает plc_spec"}
 OUT = {"type": "string", "description": r"Папка проекта, куда положить hawell/, например C:\Projects\line"}
@@ -21,7 +21,7 @@ INSTRUCTIONS = (
     "Программа контроллера Haiwell Happy. Язык LD, и у среды есть язык инструкций (STL): LD ↔ STL по F7, "
     "в руководстве Haiwell у каждой инструкции стоит поддержка IL — поэтому программа отдаётся списком "
     "инструкций, это штатный язык среды, а не обходной путь. hawell_program показывает программу из "
-    "спецификации, hawell_export пишет папку hawell/ (program.il, program.ld.txt, io.csv, README.txt), "
+    "спецификации, hawell_export пишет папку hawell/ (program.il, program.ld.txt, io.csv, comments.txt, README.txt), "
     "hawell_read читает её обратно. Сам .gpc не пишется и не читается: тело — закрытое сжатие вендора, его "
     "сохраняет только Haiwell Happy; hawell_info и hawell_check говорят об этом прямо. Программу Machine "
     "Expert / CODESYS делает plc-kit, экраны панели — oni-project и ebpro-cmtp."
@@ -58,7 +58,8 @@ TOOLS = [
         {"spec_file": SPEC}, ("spec_file",)),
     _rw("hawell_export", "Записать программу для Haiwell Happy",
         "Пишет папку hawell/ рядом с проектом: program.il (список инструкций — штатный язык Haiwell Happy, "
-        "LD ↔ STL по F7), program.ld.txt (та же схема лестницей), io.csv (сигналы и адреса) и README.txt "
+        "LD ↔ STL по F7), program.ld.txt (та же схема лестницей), io.csv (сигналы и адреса), comments.txt "
+        "(подписи для File → Import → Component comment table) и README.txt "
         "(что сделать в программе, по шагам). Сам .gpc не пишется: формат закрытый, его сохраняет Haiwell Happy.",
         {"spec_file": SPEC, "out_dir": OUT}, ("spec_file", "out_dir")),
     _ro("hawell_read", "Прочитать записанный экспорт",

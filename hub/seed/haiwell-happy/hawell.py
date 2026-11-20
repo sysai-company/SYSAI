@@ -16,6 +16,7 @@
         hawell/program.il    — программа списком инструкций (LD/AND/ANI/OR/OUT/TON/SET/RST …), с комментариями
         hawell/program.ld.txt— та же программа лестницей, чтобы рисовать в LD и сверять глазами
         hawell/io.csv        — таблица «сигнал → адрес X/Y/M/T/D», её заводят в таблице символов
+        hawell/comments.txt  — подписи компонентов для File → Import → Component comment table
         hawell/README.txt    — что сделать в Haiwell Happy, по шагам
 
 Адресация — Haiwell: X (входы), Y (выходы), M (внутренние реле), T (таймеры), C (счётчики), D (регистры), номера
@@ -362,6 +363,21 @@ def io_csv(prog: dict) -> str:
     return buf.getvalue()
 
 
+def comments_text(prog: dict) -> str:
+    """Подписи компонентов в том виде, как их вводят в Haiwell Happy: `X0//пуск нории`.
+
+    Руководство среды: комментарий ставится за компонентом через «//», а File → Import →
+    Component comment table принимает «external comment file». Пишем по строке на сигнал —
+    это снимает набор трёхсот подписей руками.
+    """
+    lines = []
+    for row in prog["io"]:
+        comment = (row.get("comment") or row.get("id") or "").strip()
+        if comment:
+            lines.append(f"{row['address']}//{comment}")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 def readme_text(prog: dict) -> str:
     areas = {}
     for row in prog["io"]:
@@ -373,6 +389,7 @@ def readme_text(prog: dict) -> str:
   program.il    программа списком инструкций (STL) — основной файл
   program.ld.txt та же программа лестницей: по ней собирают LD, ею же сверяют
   io.csv        таблица сигналов и адресов ({said or 'пусто'})
+  comments.txt  подписи компонентов: File → Import → Component comment table
   README.txt    этот файл
 
 Что сделать в Haiwell Happy (5 шагов):
@@ -381,11 +398,14 @@ def readme_text(prog: dict) -> str:
      (X — входы, Y — выходы, M — внутренние реле, T — таймеры, D — регистры; числа десятичные).
   3. Программа: открыть программу и переключить LD ↔ STL клавишей F7, вставить текст program.il
      (или собрать схему по program.ld.txt, если нужен рисунок для проверки глазами).
-  4. Проверка: F9 (компиляция). Ошибок быть не должно; замечания — по строкам, которые Haiwell покажет.
-  5. Записать в контроллер (On-line control PLC) и сохранить проект: File → Save, файл .gpc.
+  4. Подписи: File → Import → «Component comment table» → comments.txt (в нём по строке на сигнал,
+     вид `X0//пуск нории`). Если среда попросит другой формат — пришлите её собственный экспорт комментариев.
+  5. Проверка: F9 (компиляция). Ошибок быть не должно; замечания — по строкам, которые Haiwell покажет.
+  6. Записать в контроллер (On-line control PLC) и сохранить проект: File → Save, файл .gpc.
 
 Важно, честно:
-  · .gpc пишется только самим Haiwell Happy: формат закрытый (сжатие вендора), и этот инструмент его не пишет.
+  · .gpc и экспорт .hwb пишутся только самим Haiwell Happy: оба — закрытый контейнер вендора
+    (b0 b0 + метка, тело энтропией 7 бит на байт), этот инструмент их не пишет.
     Поэтому последний шаг — сохранение в программе, а не файл с нашей стороны.
   · Задержка пуска задаётся в D-регистрах (0,1 с на единицу) — значения указаны в комментариях к схемам.
   · Схемы собраны по спецификации проекта: адреса входов и выходов выданы по порядку, их надо свести с
@@ -409,7 +429,7 @@ def export(spec_file, out_dir) -> dict:
     folder = pathlib.Path(str(out_dir)) / FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     files = {"program.il": il_text(prog), "program.ld.txt": ladder_text(prog), "io.csv": io_csv(prog),
-             "README.txt": readme_text(prog)}
+             "comments.txt": comments_text(prog), "README.txt": readme_text(prog)}
     written = []
     for name, text in files.items():
         with open(folder / name, "w", encoding="utf-8", newline="\n") as f:
