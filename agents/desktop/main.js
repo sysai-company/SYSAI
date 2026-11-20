@@ -29,6 +29,7 @@ const { AutoApprove } = require('./lib/autoapprove');
 const apps = require('./lib/apps');
 const updates = require('./lib/updates');
 const { Swarm } = require('./lib/swarm');
+const relaunch = require('./lib/relaunch');
 const pkg = require('./package.json');
 
 const VERSION = pkg.version;
@@ -204,6 +205,13 @@ function createWindow() {
     } catch { /* not kept */ }
   });
   win.on('closed', () => { win = null; uiReady = false; });
+  // Установлена другая сборка, а работаем в этой — говорим сразу при открытии: иначе человек живёт на старом окне и
+  // не понимает, почему «обновилось, а ничего не изменилось».
+  const newer = relaunch.next(HOME, app.getAppPath());
+  if (newer) {
+    sendOrQueue('ui:notice', { kind: 'update',
+      text: `Установлено окно агента ${newer.version || 'новой сборки'}, а открыто ${VERSION}. Перезапустите, чтобы работать в новой.` });
+  }
   wc.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -841,14 +849,30 @@ function handle(channel, fn) {
 function ipc() {
   handle('app:info', () => {
     const cfg = config.load(HOME);
-    return { version: VERSION, electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform,
+    const got = relaunch.installed(HOME);
+    return { installed: got ? { version: got.version, app: got.app } : null,
+      running: app.getAppPath(), version: VERSION, electron: process.versions.electron, chrome: process.versions.chrome, platform: process.platform,
       home: HOME, agent: cfg.agent, profile: cfg.profile, server: cfg.server, person: cfg.person, connected: cfg.connected,
       hermes: hermesPath(cfg), homedir: os.homedir() };
   });
+  // Перезапуск — в установленную сборку, а не в ту программу, из которой окно сейчас работает: после обновления
+  // они разные, и app.relaunch() открывал старую («перезапустил — ничего не изменилось»).
   handle('app:relaunch', () => {
+    const into = relaunch.next(HOME, app.getAppPath());
+    if (into) {
+      try {
+        const run = relaunch.command(into);
+        log(`перезапускаю окно в установленную сборку ${into.version || into.app}`);
+        spawn(run.exe, run.args, { cwd: run.cwd, detached: true, stdio: 'ignore', env: process.env }).unref();
+        app.exit(0);
+        return { into: into.version || into.app, ok: true };
+      } catch (err) {
+        log('новая сборка не запустилась, перезапускаюсь как есть:', err);
+      }
+    }
     app.relaunch();
     app.exit(0);
-    return true;
+    return { into: '', ok: true };
   });
   handle('acp:state', () => acpInfo);
   handle('acp:restart', () => restartAcp());

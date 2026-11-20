@@ -20,6 +20,7 @@ const storage = require('../lib/storage');
 const apps = require('../lib/apps');
 const chats = require('../lib/chats');
 const swarmLib = require('../lib/swarm');
+const relaunchLib = require('../lib/relaunch');
 
 const FAKE = path.join(__dirname, 'fake-hermes.js');
 const UIMCP = path.join(__dirname, '..', 'lib', 'uimcp.js');
@@ -1596,4 +1597,51 @@ test('the planner may split the work itself, and a bad plan falls back to the li
   });
   const second = await fallback.run();
   assert.equal(second.cells.length, 4, 'плохой план — делим список сами');
+});
+
+// --------------------------------------------------------------------------------- перезапуск в новую сборку
+test('restarting after an update opens the installed build, not the copy the window runs from', () => {
+  const root = tmp();
+  const home = path.join(root, 'SYSAI');
+  const desk = path.join(home, 'desktop');
+  const oldApp = path.join(desk, 'app-0.9.0-aaa');
+  const newApp = path.join(desk, 'app-0.9.1-bbb');
+  const exe = path.join(desk, 'electron', 'electron.exe');
+  try {
+    for (const dir of [oldApp, newApp]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), '{"version":"x"}');
+    }
+    fs.mkdirSync(path.dirname(exe), { recursive: true });
+    fs.writeFileSync(exe, 'MZ');
+    assert.equal(relaunchLib.next(home, oldApp), null, 'desktop.json ещё нет — обычный перезапуск');
+
+    const write = (app, version) => fs.writeFileSync(path.join(desk, 'desktop.json'),
+      JSON.stringify({ exe, app, version, installed_at: '2026-11-20T00:00:00+00:00' }));
+    write(newApp, '0.9.1');
+    const into = relaunchLib.next(home, oldApp);
+    assert.ok(into, 'установлена другая сборка — окно должно открыться в ней');
+    assert.equal(into.version, '0.9.1');
+    assert.equal(path.resolve(into.app), path.resolve(newApp));
+    assert.equal(relaunchLib.next(home, newApp), null, 'уже работаем в установленной — обычный перезапуск');
+
+    // битая установка (нет package.json) — не перезапускаемся в пустоту
+    fs.rmSync(path.join(newApp, 'package.json'));
+    assert.equal(relaunchLib.next(home, oldApp), null);
+    assert.equal(relaunchLib.installed(home), null);
+
+    // нет файла вовсе и битый json — тоже обычный перезапуск, а не падение
+    fs.rmSync(path.join(desk, 'desktop.json'));
+    assert.equal(relaunchLib.next(home, oldApp), null);
+    fs.writeFileSync(path.join(desk, 'desktop.json'), '{не json');
+    assert.equal(relaunchLib.next(home, oldApp), null);
+
+    // команда запуска — как у синхронизатора: exe + папка приложения
+    const run = relaunchLib.command({ exe, app: newApp });
+    assert.equal(run.exe, exe);
+    assert.deepEqual(run.args, [newApp]);
+    assert.equal(run.cwd, newApp);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
