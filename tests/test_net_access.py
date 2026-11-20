@@ -4,7 +4,7 @@ import copy
 
 from app import config
 from app.db import SessionLocal, User
-from app.net import access, agents
+from app.net import access, agents, journal
 from app import ui_icons
 from app.net.models import NetAccessProfile, NetAgentAccess
 
@@ -452,17 +452,19 @@ def test_a_swarm_save_does_not_overwrite_a_save_of_the_same_agent_in_between(cli
     """«Рой агентов» меняет только раздел swarm: исключения, сохранённые на «Доступах» между чтением и записью,
     не затираются старой копией."""
     agent_id = net_agent["id"]
-    real = access.normalize
+    access.set_agent_access(agent_id, overrides={"chat": {"owner": True}}, by="boss")  # строка с исключением уже есть
+    real = journal.changes
     fired = []
 
-    def normalize_with_a_save_in_between(rules):
-        if not fired and isinstance(rules, dict) and set(rules) == {"swarm"}:
+    # «Доступы» сохраняют после того, как рой прочёл строку, и до того, как записал: journal.changes зовётся ровно между
+    def changes_with_a_save_in_between(before, after):
+        if not fired and "соты" in after:
             fired.append(1)
             access.set_agent_access(agent_id, overrides={"models": {"budget_day_usd": 3.5}}, by="other-admin")
-        return real(rules)
-    monkeypatch.setattr(access, "normalize", normalize_with_a_save_in_between)
+        return real(before, after)
+    monkeypatch.setattr(journal, "changes", changes_with_a_save_in_between)
     access.set_agent_swarm(agent_id, True, 10, 4, by="boss")
-    monkeypatch.setattr(access, "normalize", real)
+    monkeypatch.setattr(journal, "changes", real)
     assert fired
     with SessionLocal() as s:
         row = s.query(NetAgentAccess).filter(NetAgentAccess.agent_id == agent_id).one()
