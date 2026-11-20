@@ -9,6 +9,7 @@ import { ProjectsView } from './projects.js';
 import { CanvasView, isProject } from './canvas.js';
 import { Composer } from './composer.js';
 import { openMenu, toast } from './ui.js';
+import { SwarmPanel } from './swarm.js';
 import { ensureLoaded } from './session-load.mjs';
 import { reserveSend, releaseSend } from './send-lock.mjs';
 
@@ -59,6 +60,7 @@ const SAVE_MS = 500;
 const saveTimers = new Map();
 
 let composer;
+let swarmPanel = null;
 let pane;
 
 const SUGGEST = [
@@ -1211,7 +1213,13 @@ async function main() {
   S.info = await api.info().catch(() => ({}));
   document.title = S.info.agent ? `Агент SYSAI — ${S.info.agent}` : 'Агент SYSAI';
   S.auto = await api.auto.get().catch(() => ({ on: false, count: 0 }));
+  swarmPanel = new SwarmPanel({ api,
+    // рой проверяет то, что человек как раз пишет; проект — папка текущего разговора
+    question: () => (composer && composer.input ? composer.input.value : ''),
+    project: () => { const c = current(); return c && c.cwd ? c.cwd : ''; } });
+  swarmPanel.onState = (state) => composer && composer.updateSwarm({ on: swarmPanel.allowed.on, busy: Boolean(state && ['plan', 'work', 'merge'].includes(state.stage)) });
   composer = new Composer({ send, stop, setConfig, auto: () => S.auto, setAuto, undoEdit, recentEdits: () => api.auto.recent(),
+    swarm: () => swarmPanel.open(),
     project: () => { const c = current(); const p = c && projectOf(c.cwd); return p ? p.name : ''; }, ready: () => S.acp.state === 'ready' && Boolean(current()),
     idle: () => (!S.info.connected ? 'Компьютер не подключён к SYSAI' : S.acp.state === 'ready' ? 'Открываю разговор…'
       : !S.acp.state || S.acp.state === 'starting' ? 'Агент запускается…' : 'Агент не запущен — нажмите «Перезапустить»') });
@@ -1225,6 +1233,9 @@ async function main() {
   api.acp.onRequest(onRequest);
   api.acp.onRequestGone(onRequestGone);
   api.auto.onState((state) => { S.auto = state; composer.update(); });
+  // Соты: значок появляется, только если профиль это разрешает (подписанный документ доступов, а не окно)
+  swarmPanel.init().then((allowed) => composer.updateSwarm({ on: Boolean(allowed && allowed.on), busy: swarmPanel.busy }))
+    .catch(() => composer.updateSwarm({ on: false }));
   api.auto.onToggle(() => setAuto(!S.auto.on));
   api.win.onShow(({ path, line }) => openPath(path, line));
   api.win.onNotice(({ text, kind }) => {

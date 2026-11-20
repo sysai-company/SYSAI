@@ -71,6 +71,18 @@ contextBridge.exposeInMainWorld('sysai', {
     now: () => call('update:now'),
     status: () => call('update:status'),
   },
+  // Соты (рой): включены ли они для профиля, сколько разрешено, запуск и живое состояние каждой соты
+  swarm: {
+    allowed: () => call('swarm:allowed'),
+    state: () => call('swarm:state'),
+    start: (opts) => call('swarm:start', opts || {}),
+    stop: () => call('swarm:stop'),
+    onState: (fn) => {
+      const h = (_e, payload) => fn(payload);
+      ipcRenderer.on('swarm:state', h);
+      return () => ipcRenderer.removeListener('swarm:state', h);
+    },
+  },
   conv: { export: (data) => call('conv:export', data) },
   clipboard: { write: (text) => call('clipboard:text', String(text ?? '')) },
   storage: {

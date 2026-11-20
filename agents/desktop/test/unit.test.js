@@ -19,6 +19,7 @@ const { AutoApprove, MAX_PER_HOUR } = require('../lib/autoapprove');
 const storage = require('../lib/storage');
 const apps = require('../lib/apps');
 const chats = require('../lib/chats');
+const swarmLib = require('../lib/swarm');
 
 const FAKE = path.join(__dirname, 'fake-hermes.js');
 const UIMCP = path.join(__dirname, '..', 'lib', 'uimcp.js');
@@ -1492,4 +1493,107 @@ test('the panel decides which panel program opens: Weintek is not ONI', () => {
   assert.equal(apps.environment({ controller: 'Haiwell S16' }, openers).plc.id, 'hawell');
   // марка не названа — берём первую найденную, но окно так и подписывает («не выбран»)
   assert.equal(apps.environment({}, openers).hmi.id, 'oni');
+});
+
+// --------------------------------------------------------------------------------------------------- рой (соты)
+test('the swarm splits work into independent cells and never leaves a part out', () => {
+  const items = ['Нория', 'Шнек', 'Триер', 'МУЗ', 'Весы', 'Заслонка', 'Вентилятор'];
+  const parts = swarmLib.chunk({ question: 'проверь спецификацию', items, cells: 3 });
+  assert.equal(parts.length, 3, 'три соты — три части, а не семь');
+  const all = parts.flatMap((p) => p.items);
+  assert.deepEqual(all.sort(), [...items].sort(), 'ни один механизм не потерян и не продублирован');
+  // без списка: вопрос по пунктам делится, а одна строка уходит одной соте
+  assert.equal(swarmLib.chunk({ question: 'первое\n\nвторое\n\nтретье\n\nчетвёртое', cells: 2 }).length, 2);
+  assert.equal(swarmLib.chunk({ question: 'проверь всё', cells: 8 }).length, 1);
+  assert.equal(swarmLib.clampCells(400), 40);
+  assert.equal(swarmLib.clampCells('коты'), 8);
+  assert.equal(swarmLib.clampCells(1), 4);
+});
+
+test('a cell answer is read from the rubric, and free text is not thrown away', () => {
+  const good = swarmLib.parseAnswer('готово\n<answer>{"checked":12,"found":[{"key":"Q1","value":"1","where":"Э3:2"}],'
+    + '"missing":[{"key":"Q2","why":"нет в схеме"}],"notes":"ок"}</answer>');
+  assert.equal(good.parsed, true);
+  assert.equal(good.checked, 12);
+  assert.equal(good.found[0].where, 'Э3:2');
+  assert.equal(good.missing[0].key, 'Q2');
+  const fenced = swarmLib.parseAnswer('```json\n{"found":[{"key":"A","value":"1"}]}\n```');
+  assert.equal(fenced.found.length, 1);
+  const prose = swarmLib.parseAnswer('Схему посмотрел, но адресов не нашёл.');
+  assert.equal(prose.parsed, false);
+  assert.match(prose.notes, /адресов не нашёл/);
+});
+
+test('the swarm runs its cells, counts them and names what disagrees', async () => {
+  const root = tmp();
+  const asked = [];
+  const swarm = new swarmLib.Swarm({
+    question: 'сверь адреса с Э3',
+    items: ['Q1', 'Q2', 'Q3'],
+    cells: 3,
+    minutes: 1,
+    root,
+    arbiter: false,
+    plan: false,
+    ask: async ({ prompt, cell }) => {
+      asked.push(cell.title);
+      if (cell.title === 'Q2') throw new Error('модель отказала');
+      // одинаковый ключ Q1 с разными значениями — это спор, его нельзя затереть
+      const value = cell.title === 'Q1' ? '1' : '2';
+      return `<answer>{"checked":2,"found":[{"key":"Q1","value":"${value}","where":"Э3"},`
+        + `{"key":"S-${cell.title}","value":"ok","where":"лист 4"}],"missing":[],"notes":""}</answer>`;
+    },
+  });
+  try {
+    const state = await swarm.run();
+    assert.equal(state.stage, 'done');
+    assert.equal(state.counters.done, 2);
+    assert.equal(state.counters.error, 1);
+    assert.equal(state.counters.found, 4);
+    assert.equal(state.result.conflicts.length, 1, 'разные значения на одном ключе — спор');
+    assert.equal(state.result.conflicts[0].key, 'q1');
+    assert.equal(state.result.conflicts[0].values.length, 2);
+    assert.match(state.result.markdown, /## Спорное/);
+    assert.match(state.result.markdown, /Q2 \| ошибка: модель отказала/);
+    assert.ok(fs.existsSync(path.join(root, state.id, 'result.md')), 'отчёт остаётся на диске');
+    assert.ok(fs.existsSync(path.join(root, state.id, 'cell-01.md')), 'у каждой соты — свой след');
+    assert.equal(asked.length, 3, 'по заданию на соту');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a cell that does not answer in time becomes «не успел», not a broken swarm', async () => {
+  const swarm = new swarmLib.Swarm({
+    question: 'долгая проверка', items: ['A', 'B'], cells: 2, minutes: 0.02, plan: false, arbiter: false,
+    ask: ({ cell }) => (cell.title === 'A'
+      ? Promise.resolve('<answer>{"checked":1,"found":[],"missing":[],"notes":"быстро"}</answer>')
+      : new Promise(() => {})), // никогда не ответит
+  });
+  const state = await swarm.run();
+  assert.equal(state.stage, 'done');
+  assert.equal(state.counters.done, 1);
+  assert.equal(state.counters.timeout, 1);
+  assert.match(state.result.markdown, /не успел/);
+});
+
+test('the planner may split the work itself, and a bad plan falls back to the list', async () => {
+  const swarm = new swarmLib.Swarm({
+    question: 'проверь всё', items: ['М1', 'М2', 'М3', 'М4'], cells: 2, minutes: 1, arbiter: false,
+    ask: async ({ prompt, cell }) => {
+      if (cell.i === -1) return '<answer>{"chunks":[{"title":"механизмы 1-2","prompt":"проверь М1, М2"}]}</answer>';
+      return '<answer>{"checked":1,"found":[],"missing":[],"notes":""}</answer>';
+    },
+  });
+  const state = await swarm.run();
+  assert.equal(state.cells.length, 1, 'план планировщика уважается');
+  assert.equal(state.cells[0].title, 'механизмы 1-2');
+
+  // рой меньше четырёх сот не бывает, поэтому делим четыре пункта на четыре части
+  const fallback = new swarmLib.Swarm({
+    question: 'проверь всё', items: ['М1', 'М2', 'М3', 'М4'], cells: 4, minutes: 1, arbiter: false,
+    ask: async ({ cell }) => (cell.i === -1 ? 'ничего не придумал' : '<answer>{"checked":1,"found":[],"missing":[]}</answer>'),
+  });
+  const second = await fallback.run();
+  assert.equal(second.cells.length, 4, 'плохой план — делим список сами');
 });

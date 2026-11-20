@@ -50,10 +50,13 @@ export class Composer {
     this.autoText = h('span');
     this.autoBtn = h('button', { class: 'picker auto-toggle' }, icon('shield', 'sm'), this.autoText);
     this.pickers = h('div', { class: 'pickers' });
+    // Соты: значка нет, пока в настройках профиля соты не включены; мигает, когда рой идёт
+    this.combBtn = h('button', { class: 'icon-btn comb-btn', title: 'Соты: рой агентов', hidden: true }, icon('comb'));
+    this.combBtn.addEventListener('click', () => { if (this.hooks.swarm) this.hooks.swarm(); });
     this.sendBtn = h('button', { class: 'send', title: 'Отправить (Enter)' }, icon('up'));
     this.slash = null;
     this.box = h('div', { class: 'composer' }, this.list, this.input,
-      h('div', { class: 'bar' }, this.attachBtn, this.autoBtn, this.pickers, h('span', { class: 'grow' }), this.sendBtn));
+      h('div', { class: 'bar' }, this.attachBtn, this.autoBtn, this.pickers, this.combBtn, h('span', { class: 'grow' }), this.sendBtn));
     this.hint = h('div', { class: 'hint' }, h('span', { text: 'Enter — отправить · Shift+Enter — новая строка' }),
       h('span', { class: 'more', text: ' · агент работает в пределах доступов SYSAI' }));
     this.el = h('div', { class: 'composer-inner' }, this.plan, this.box, this.hint);
@@ -227,6 +230,13 @@ export class Composer {
       this._drawFiles();
       this.update();
     }
+  }
+
+  // Соты: включены ли они для профиля (тогда значок есть) и идёт ли рой сейчас (тогда он светится)
+  updateSwarm({ on = false, busy = false } = {}) {
+    this.combBtn.hidden = !on;
+    this.combBtn.classList.toggle('busy', Boolean(on && busy));
+    this.combBtn.title = busy ? 'Соты: рой работает' : on ? 'Соты: рой агентов' : 'Соты выключены в доступах';
   }
 
   update() {

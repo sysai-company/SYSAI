@@ -94,6 +94,66 @@
     },
     shell: { open: async () => {}, reveal: async () => {}, run: async () => {}, external: async () => {} },
     // «Проверить обновление»: в стенде ?upd=1 — есть новая версия, ?upd=bad — компьютер не связан с SYSAI
+    // рой: стенд показывает живые соты без настоящих агентов
+    swarm: (() => {
+      let state = null;
+      const subs = new Set();
+      const count = (s) => {
+        const list = s.cells || [];
+        s.counters = {
+          cells: list.length,
+          working: list.filter((x) => x.state === 'working').length,
+          done: list.filter((x) => x.state === 'done').length,
+          error: list.filter((x) => x.state === 'error').length,
+          timeout: list.filter((x) => x.state === 'timeout').length,
+          found: list.reduce((n, x) => n + ((x.answer && x.answer.found) || []).length, 0),
+          missing: list.reduce((n, x) => n + ((x.answer && x.answer.missing) || []).length, 0),
+        };
+      };
+      const say = (s) => { count(s); state = s; for (const fn of subs) fn(JSON.parse(JSON.stringify(s))); };
+      const cell = (i, n) => ({
+        i, title: ['Нория', 'Шнек', 'Триер', 'МУЗ', 'Весы', 'Заслонка', 'Вентилятор', 'Датчик'][i % 8] + ` ${i + 1}`,
+        state: 'idle', startedAt: 0, endedAt: 0, error: '', raw: '', answer: null,
+      });
+      return {
+        allowed: async () => ({ on: true, cells: 16, why: '' }),
+        state: async () => state,
+        start: async ({ question, cells }) => {
+          const n = Math.max(4, Math.min(16, cells || 8));
+          const fresh = { id: 'swarm-demo', question, stage: 'work', startedAt: Date.now(), endedAt: 0,
+            cells: Array.from({ length: n }, (_, i) => cell(i, n)),
+            counters: { cells: n, working: 0, done: 0, error: 0, timeout: 0, found: 0, missing: 0 },
+            result: { markdown: '', conflicts: [], path: '' }, error: '' };
+          say(fresh);
+          // три волны: ищут → ответили / один с ошибкой / один не успел
+          setTimeout(() => { for (const c of state.cells.slice(0, Math.ceil(n / 3))) c.state = 'working'; say(state); }, 500);
+          setTimeout(() => {
+            for (const c of state.cells) {
+              if (c.i % 7 === 3) { c.state = 'error'; c.error = 'модель отказала (демо)'; }
+              else if (c.i % 11 === 9) { c.state = 'timeout'; }
+              else if (c.i < Math.ceil(n * 0.7)) {
+                c.state = 'done';
+                c.answer = { checked: 12 + c.i, found: [{ key: `Q${c.i + 1}`, value: '1', where: 'Э3:лист ' + (c.i + 1) }], missing: [], notes: '', parsed: true };
+              }
+            }
+            say(state);
+          }, 1600);
+          setTimeout(() => {
+            for (const c of state.cells) if (c.state === 'working') {
+              c.state = 'done';
+              c.answer = { checked: 4, found: [], missing: [{ key: `Q${c.i + 1}`, why: 'нет в схеме' }], notes: '', parsed: true };
+            }
+            state.stage = 'done';
+            state.result = { markdown: '# Демо', path: 'C:/проект/.sysai/swarm/swarm-demo/result.md',
+              conflicts: [{ key: 'q1', values: [{ value: '1', cells: [{ cell: 0, where: 'Э3' }] }, { value: '2', cells: [{ cell: 2, where: 'Э3' }] }] }] };
+            say(state);
+          }, 3000);
+          return state;
+        },
+        stop: async () => true,
+        onState: (fn) => { subs.add(fn); return () => subs.delete(fn); },
+      };
+    })(),
     updates: {
       check: async () => (new URLSearchParams(location.search).get('upd') === 'bad'
         ? { ok: false, status: 401, local: { version: '0.4.11' }, log: ['2026-11-20 09:12:04 WARNING SYSAI не принял токен агента'],
@@ -116,6 +176,7 @@
         { id: 'hawell', title: 'Haiwell Happy', kind: 'plc', open: 'paste', file: PROJECT + '/hawell/program.il', vendor: 'Haiwell', serves: 'контроллеры Haiwell — программа списком инструкций' },
       ],
       open: async (id) => ({ id, exe: '', file: '', clipboard: id === 'hawell', auto: false, len: 900 }),
+
       // «где и что будет»: в стенде железо проекта — M241 и панель cMT3072X
       plan: async () => {
         const openers = await window.sysai.apps.detect();
@@ -174,6 +235,12 @@
         enum: ['Machine Expert', 'Haiwell Happy'],
         'x-icons': { 'Machine Expert': 'img/format-me.svg', 'Haiwell Happy': 'img/format-hawell.svg' } } } },
     } }), 900);
+  }
+  if (scene === 'swarm') {
+    setTimeout(() => { const b = document.querySelector('.comb-btn'); if (b) b.click(); }, 700);
+    setTimeout(() => { const q = document.querySelector('.swarm-q'); if (q) { q.value = 'сверь адреса в спецификации с Э3'; q.dispatchEvent(new Event('input', { bubbles: true })); } }, 900);
+    setTimeout(() => { const b = [...document.querySelectorAll('.swarm-card .btn')].find((x) => /Запустить/.test(x.textContent)); if (b) b.click(); }, 1100);
+    setTimeout(() => { const c = document.querySelector('.comb-grid .cell.done'); if (c) c.click(); }, 4200);
   }
   if (scene === 'panel') {    // экраны: сначала формат панели, потом разрешение — панели разные
     setTimeout(() => emit('acp:request', { id: 9002, method: 'elicitation/create', params: {

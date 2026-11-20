@@ -28,6 +28,7 @@ const rules = require('./lib/rules');
 const { AutoApprove } = require('./lib/autoapprove');
 const apps = require('./lib/apps');
 const updates = require('./lib/updates');
+const { Swarm } = require('./lib/swarm');
 const pkg = require('./package.json');
 
 const VERSION = pkg.version;
@@ -59,6 +60,10 @@ let auto = null; // «правки без вопросов» (lib/autoapprove.js
 const sessionCwd = new Map(); // sessionId → the folder the session was opened in
 const pending = new Map(); // questions of the agent waiting for the person: id → {id, method, params}
 const queue = []; // what waits for the page: [channel, payload]
+const swarmText = new Map(); // sessionId → the text this swarm cell has produced
+let swarm = null; // the swarm running now (lib/swarm.js), one at a time: it eats the whole machine
+let swarmBeat = 0;
+let swarmCwd = ''; // папка роя: проект, по которому проверяют, — агент должен её видеть
 
 // ------------------------------------------------------------------------------------------------- the journal
 function log(...parts) {
@@ -362,6 +367,15 @@ function startAcp() {
   setState({ state: 'starting', generation: gen, message: '', stderr: '', agentInfo: null });
   log(`запускаю ${hermes} ${args.join(' ')}`);
   client.on('notification', (n) => {
+    // Рой слушает свои сессии отдельно: его ответы не должны попадать в открытый разговор
+    const sid = n && n.params && n.params.sessionId;
+    if (sid && swarmText.has(sid)) {
+      const u = (n.params && n.params.update) || {};
+      if (u.sessionUpdate === 'agent_message_chunk' && u.content && u.content.type === 'text') {
+        swarmText.set(sid, (swarmText.get(sid) || '') + u.content.text);
+      }
+      return;
+    }
     if (acp === client) send('acp:notification', n);
   });
   client.on('request', (r) => onAgentRequest(client, r));
@@ -774,6 +788,44 @@ function netJson(url, headers = {}, timeout = 15000) {
   });
 }
 
+// Одна сота — одна сессия Hermes: ответы не смешиваются с открытым разговором, а состояние каждой соты считается
+// отдельно. Рой не правит проекты: задание прямо запрещает запись.
+async function askSwarm({ prompt }) {
+  const client = acp;
+  if (!client || acpInfo.state !== 'ready') throw new Error('агент ещё не запущен: дождитесь Hermes');
+  const base = { cwd: swarmCwd || os.homedir(), mcpServers: windowServer() ? [windowServer()] : [] };
+  let res;
+  try {
+    res = await client.request('session/new', base, { timeout: 120000 });
+  } catch (err) {
+    if (!base.mcpServers.length || !/mcp/i.test(`${err.message} ${JSON.stringify(err.data || '')}`)) throw err;
+    res = await client.request('session/new', { ...base, mcpServers: [] }, { timeout: 120000 });
+  }
+  const sid = (res && res.sessionId) || '';
+  if (!sid) throw new Error('Hermes не дал сессию для соты');
+  swarmText.set(sid, '');
+  try {
+    await client.request('session/prompt', { sessionId: sid, prompt: [{ type: 'text', text: prompt }] }, { timeout: 0 });
+  } finally {
+    setTimeout(() => swarmText.delete(sid), 5000);
+  }
+  return swarmText.get(sid) || '';
+}
+
+// Соты — это настройка профиля из подписанного документа доступов: окно не решает само, сколько их.
+function swarmAllowed() {
+  const got = rules.load(HOME);
+  const sw = (got && got.rules && got.rules.swarm) || {};
+  return { on: Boolean(sw.on), cells: Number(sw.cells) || 0, why: (got && got.error) || '' };
+}
+
+function swarmSend(state) {
+  const now = Date.now();
+  if (state && state.stage === 'work' && now - swarmBeat < 150) return; // 40 сот не должны слать 40 событий в секунду
+  swarmBeat = now;
+  sendOrQueue('swarm:state', state);
+}
+
 function handle(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => {
     if (!win || event.sender !== win.webContents) return { ok: false, error: 'запрос не из окна' };
@@ -966,6 +1018,40 @@ function ipc() {
   // «Что с обновлением сейчас»: окно спрашивает каждые пару секунд после «Установить» — ставит синхронизатор в
   // фоне, и человек должен видеть, что дело идёт (и где встало, если не идёт).
   handle('update:status', () => updates.status({ home: HOME }));
+  // ------------------------------------------------------------------------------------------------ соты (рой)
+  handle('swarm:allowed', () => swarmAllowed());
+  handle('swarm:state', () => (swarm ? swarm.snapshot() : null));
+  handle('swarm:start', async (opts) => {
+    if (swarm) throw new Error('рой уже идёт: дождитесь отчёта или остановите его');
+    const allow = swarmAllowed();
+    if (!allow.on) throw new Error('соты не включены для профиля: SYSAI → Доступы → Соты — включите и задайте число');
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const question = String(o.question || '').trim();
+    if (!question) throw new Error('рой без задачи: напишите, что проверять');
+    const cells = Math.min(Number(o.cells) || allow.cells, allow.cells);
+    const root = o.project ? path.join(String(o.project), '.sysai', 'swarm') : path.join(DESK, 'swarm');
+    swarmCwd = o.project ? String(o.project) : '';
+    swarm = new Swarm({ question, items: Array.isArray(o.items) ? o.items : [], cells, minutes: o.minutes,
+      ask: askSwarm, root, arbiter: true });
+    const mine = swarm;
+    mine.on('state', (s) => swarmSend(s));
+    mine.run().then((state) => {
+      log(`рой закончил: ${state.stage}, сот ${state.cells.length}, находок ${state.counters.found}`);
+      if (state.result.path) send('ui:notice', { text: `Рой готов: ${state.counters.found} находок. Отчёт — ${state.result.path}`, kind: 'ok' });
+    }).catch((err) => {
+      log('рой упал:', err);
+      send('ui:notice', { text: `Рой остановился: ${err.message}`, kind: 'err' });
+    }).finally(() => {
+      if (swarm === mine) swarm = null;
+    });
+    return mine.snapshot();
+  });
+  handle('swarm:stop', () => {
+    if (!swarm) return false;
+    swarm.abort();
+    send('ui:notice', { text: 'Рой останавливается: ответы, что успели, останутся в отчёте', kind: 'warn' });
+    return true;
+  });
   handle('win:overlay', (color) => {
     if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('нет цвета');
     try {

@@ -637,3 +637,57 @@ html[data-theme="light"] .picker.auto-toggle.on { color: #8f3521; background: rg
 html[data-theme="light"] .ask { box-shadow: 0 0 0 4px rgba(168,64,43,.05), 0 1px 2px rgba(20,23,25,.05); }
 html[data-theme="light"] .tool { background: var(--card); }
 html[data-theme="light"] .stage-pill, html[data-theme="light"] .chip { background: var(--card2); }
+
+/* --------------------------------------------------------------------------------------------- соты (рой агентов) */
+/* Значок в композере: есть только у профиля с включёнными сотами; пока рой идёт — дышит */
+.comb-btn { color: var(--clay); }
+.comb-btn.busy { color: var(--green); animation: comb-breathe 2.4s ease-in-out infinite; }
+@keyframes comb-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+.swarm-wrap { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.42); backdrop-filter: blur(2px); padding: 24px; }
+.swarm-card { width: min(680px, 100%); max-height: min(78vh, 720px); overflow: auto; padding: 18px 20px 16px; border-radius: 18px;
+  background: var(--card); box-shadow: 0 24px 60px rgba(0,0,0,.45), inset 0 0 0 1px var(--line); }
+.swarm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.swarm-head .lead { color: var(--clay); width: 22px; height: 22px; }
+.swarm-head .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.swarm-head b { font-size: 15px; }
+.swarm-head .sub { color: var(--muted); font-size: 12.5px; }
+.swarm-text { color: var(--soft); font-size: 13px; line-height: 1.5; margin: 0 0 12px; }
+.swarm-row { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+.swarm-label { width: 62px; flex: none; color: var(--faint); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding-top: 7px; }
+.swarm-q { flex: 1; min-height: 66px; resize: vertical; padding: 8px 10px; border-radius: 10px; background: var(--card2);
+  color: var(--text); border: 1px solid var(--line); font: inherit; font-size: 13px; }
+.swarm-q:focus { outline: none; border-color: var(--clay); }
+.swarm-row input[type=range] { flex: 1; accent-color: var(--clay); margin-top: 10px; }
+.comb-num { color: var(--clay); font-size: 14px; padding-top: 8px; width: 24px; }
+.swarm-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.comb-done { color: var(--faint); font-size: 12px; }
+
+/* Соты: сетка шестиугольников. Цвет — состояние, форма — тоже: точка внутри отличает «нашёл» от «ошибки» */
+.comb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; margin: 6px 0 12px; }
+.comb-grid .cell { position: relative; aspect-ratio: 1 / .88; border: none; padding: 0; cursor: pointer;
+  background: var(--line); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 11px; transition: background .25s; }
+.comb-grid .cell .n { position: relative; z-index: 1; }
+.comb-grid .cell.idle { background: var(--card2); box-shadow: inset 0 0 0 1px var(--line); }
+.comb-grid .cell.working { background: var(--green); color: #0d1a0d; animation: comb-work 1.6s ease-in-out infinite; }
+.comb-grid .cell.done { background: var(--green); color: #0d1a0d; }
+.comb-grid .cell.error { background: var(--red); color: #fff; }
+.comb-grid .cell.timeout { background: var(--line); color: var(--muted); }
+.comb-grid .cell.conflict { background: var(--amber); color: #22160a; }
+.comb-grid .cell:hover { filter: brightness(1.12); }
+@keyframes comb-work { 0%, 100% { opacity: .62; } 50% { opacity: 1; } }
+.comb-tail { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
+.comb-answer { padding: 10px 12px; border-radius: 10px; background: var(--card2); box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12.5px; display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.comb-state { color: var(--faint); font-size: 11.5px; }
+.comb-line { color: var(--soft); }
+.comb-line b { color: var(--text); }
+.comb-line .where, .comb-line.miss { color: var(--faint); }
+.comb-note { color: var(--muted); }
+.comb-err { color: var(--red); font-size: 12.5px; }
+.swarm-q-said { color: var(--soft); font-size: 13px; margin: 0 0 8px; }
+@media (prefers-reduced-motion: reduce) {
+  .comb-btn.busy, .comb-grid .cell.working { animation: none; }
+}
