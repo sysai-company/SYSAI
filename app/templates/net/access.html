@@ -45,6 +45,20 @@
       </div>
     </fieldset>
 
+    <fieldset class="ac-group combs"><legend>{{ sections.swarm }}</legend>
+      <div class="comb-wrap">
+        <div class="comb" aria-hidden="true">
+          {% for i in range(40) %}<span class="cell{{ ' on' if i < r.swarm.cells }}"></span>{% endfor %}
+        </div>
+        <div class="comb-side">
+          <div class="net-checks"><label><input type="checkbox" name="swarm_on" {{ 'checked' if r.swarm.on }}> соты включены для этого профиля</label></div>
+          <label class="f">Сколько сот <input name="swarm_cells" type="number" min="4" max="40" step="1" value="{{ r.swarm.cells }}">
+            <small class="muted">Столько агентов работает разом, когда инженер запускает рой: каждая сота — один агент. Ищет — сота пульсирует, нашёл — горит ровно, ошибся — красная, не успел — серая. Включённые соты светлее, остальные — запас на будущее.</small></label>
+          <p class="ac-hint">Значок сот появляется в окне агента рядом с отправкой и в настройках — крупнее. Права у роя только на чтение: он проверяет и ищет, но не пишет в проекты.</p>
+        </div>
+      </div>
+    </fieldset>
+
     <fieldset class="ac-group"><legend>Компьютер</legend>
       <p class="ac-hint">Команды и код идут с правами человека и проверяются по тексту: кому нельзя в папку или в интернет — тому без команд.</p>
       <div class="net-checks"><label><input type="checkbox" name="commands_run" {{ 'checked' if r.commands.run }}> выполнять команды на ПК без вопросов</label></div>

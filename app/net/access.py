@@ -25,11 +25,12 @@ from . import journal
 from .models import NetAccessProfile, NetAgent, NetAgentAccess
 
 SECTIONS = ("commands", "folders", "programs", "mcp", "data", "internet", "models", "schedule", "chat", "skills", "files",
-            "plc", "edits")
+            "plc", "edits", "swarm")
 SECTION_RU = {"commands": "Команды на ПК", "folders": "Папки", "programs": "Программы", "mcp": "MCP-инструменты",
               "data": "Данные SYSAI", "internet": "Интернет", "models": "Нейронки", "schedule": "Дела по расписанию",
               "chat": "Кто может писать агенту", "skills": "Хаб: навыки и инструменты", "files": "Хранилище",
-              "plc": "Сеть контроллеров", "edits": "Правки без вопросов"}
+              "plc": "Сеть контроллеров", "edits": "Правки без вопросов",
+              "swarm": "Соты — рой агентов"}
 TIERS = ("cheap", "mid", "strong", "vision", "auto")
 MODEL_TIERS = ("cheap", "mid", "strong", "vision")  # a real model behind each, chosen in the settings
 TEXT_TIERS = ("cheap", "mid", "strong")
@@ -92,7 +93,12 @@ EMPTY = {
     # without questions in one project at a time, «projects» — in the project folders. The switch itself is the
     # person's; this is its ceiling
     "edits": {"auto": "projects"},
+    # Соты: сколько агентов может работать разом, когда инженер запускает рой на проверку спецификации и поиск.
+    # Включено или нет — решает человек в настройках профиля; число сот не больше разрешённого (SWARM_CELLS).
+    "swarm": {"on": False, "cells": 8},
 }
+# Разрешённое число сот: меньше четырёх — это не рой, больше сорока — уже не читают, а мешают друг другу
+SWARM_CELLS = (4, 40)
 EDITS = ("off", "project", "projects")
 EDITS_RU = {"off": "нельзя: спрашивать всегда", "project": "в одном проекте за раз", "projects": "в папках проектов"}
 
@@ -258,6 +264,13 @@ def normalize(rules) -> dict:
     out["skills"] = {"departments": _lines(sk.get("departments"), 50, 100) or ["*"], "propose": bool(sk.get("propose", False))}
     fi = rules.get("files") if isinstance(rules.get("files"), dict) else {}
     out["files"] = {k: _lines(fi.get(k), 50, 100) for k in ("read", "write")}
+    sw = rules.get("swarm") if isinstance(rules.get("swarm"), dict) else {}
+    try:
+        cells = int(sw.get("cells", 8))
+    except (TypeError, ValueError):
+        cells = 8
+    out["swarm"] = {"on": bool(sw.get("on", False)),
+                    "cells": max(SWARM_CELLS[0], min(SWARM_CELLS[1], cells))}
     ed = rules.get("edits") if isinstance(rules.get("edits"), dict) else {}
     out["edits"] = {"auto": ed.get("auto") if ed.get("auto") in EDITS else "projects"}
     pl = rules.get("plc") if isinstance(rules.get("plc"), dict) else {}
@@ -862,4 +875,5 @@ def rules_from_form(form) -> dict:
         "files": {"read": lines("files_read"), "write": lines("files_write")},
         "plc": {"hosts": lines("plc_hosts")},
         "edits": {"auto": get("edits_auto")},
+        "swarm": {"on": bool(get("swarm_on")), "cells": get("swarm_cells")},
     })

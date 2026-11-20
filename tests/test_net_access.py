@@ -339,3 +339,30 @@ def test_a_shipped_tool_reaches_the_profiles_when_the_server_starts(client, net_
     assert "new-kit" in access.document(net_agent["id"])["doc"]["rules"]["mcp"]      # and the computer gets it with the next sync
     monkeypatch.setattr(access, "ensure_builtin", lambda: 1 / 0)
     assert main.give_new_defaults_to_profiles() is False                             # a failure here never stops the start
+
+
+def test_the_swarm_setting_limits_the_honeycomb_and_a_change_reaches_the_agent(client, net_agent):
+    """Соты: включены или нет и сколько их — это раздел профиля, как нейронки или хранилище. Число сот ограничено
+    разумным (4–40), и изменение числа — новая редакция документа, иначе агент не узнает, что ему разрешили рой."""
+    rules = access.normalize({})
+    assert rules["swarm"] == {"on": False, "cells": 8}, "по умолчанию соты выключены"
+    # из формы: включили и захотели больше, чем разрешено — получают предел, а не молчаливое «сколько сказали»
+    assert access.normalize({"swarm": {"on": True, "cells": 400}})["swarm"] == {"on": True, "cells": 40}
+    assert access.normalize({"swarm": {"on": True, "cells": 1}})["swarm"] == {"on": True, "cells": 4}
+    assert access.normalize({"swarm": {"on": "да", "cells": "12"}})["swarm"] == {"on": True, "cells": 12}
+    assert access.normalize({"swarm": {"cells": "коты"}})["swarm"]["cells"] == 8
+
+    pid = _profile("opo-engineer").id
+    before = access.document(net_agent["id"], "https://sysai.example")["rev"]
+    base = next(p["rules"] for p in access.profiles() if p["id"] == pid)
+    access.save_profile(pid, "Инженер ОПО", "", dict(base, swarm={"on": True, "cells": 12}), by="boss")
+    try:
+        after = access.document(net_agent["id"], "https://sysai.example")
+        assert after["rules"]["swarm"] == {"on": True, "cells": 12}
+        assert after["rev"] != before, "новая редакция: агент применит её при следующей синхронизации"
+        page = client.get("/agents/access")
+        assert page.status_code == 200
+        assert 'name="swarm_on"' in page.text and 'name="swarm_cells"' in page.text
+        assert "Соты" in page.text
+    finally:
+        access.save_profile(pid, "Инженер ОПО", "", base, by="boss")
