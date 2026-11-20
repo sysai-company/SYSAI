@@ -30,6 +30,26 @@ function clampCells(n) {
   return Math.max(MIN_CELLS, Math.min(MAX_CELLS, v));
 }
 
+// Что разрешено рою по подписанным доступам (раздел swarm): включён ли, сколько сот и сколько из них разом. Документ
+// старого SYSAI «at» не называет — тогда как было: CONCURRENCY. Разом никогда не больше, чем сот.
+function allowedOf(rules) {
+  const sw = (rules && typeof rules.swarm === 'object' && rules.swarm) || {};
+  const cells = Number.parseInt(sw.cells, 10) > 0 ? Number.parseInt(sw.cells, 10) : 0;
+  const said = Number.parseInt(sw.at, 10);
+  const at = Math.max(1, Math.min(Number.isFinite(said) && said > 0 ? said : CONCURRENCY, cells || MAX_CELLS));
+  return { on: Boolean(sw.on), cells, at };
+}
+
+// Почему роя нет — словами для человека. «Доступов на компьютере нет / они обновляются» — не то же, что
+// «администратор выключил»: первое лечится синхронизацией, второе — в SYSAI. "" — рой разрешён.
+function offText(allowed) {
+  const a = allowed || {};
+  if (a.why) return `Рой сейчас недоступен: ${a.why}.`;
+  if (a.on) return '';
+  return 'Рой агентов для вас выключен. Включает администратор: SYSAI → Сеть агентов → Рой агентов — '
+    + 'ваша сота, число сот и сколько разом.';
+}
+
 function group(items, cells) {
   const list = items.filter((x) => String(x || '').trim());
   if (!list.length) return [];
@@ -374,5 +394,5 @@ class Swarm extends EventEmitter {
 
 module.exports = {
   Swarm, MIN_CELLS, MAX_CELLS, DEFAULT_CELLS, DEFAULT_MINUTES, CONCURRENCY, ANSWER_RULE,
-  clampCells, chunk, cellPrompt, planPrompt, parseAnswer, jsonOf, conflicts, report, writeOut,
+  clampCells, allowedOf, offText, chunk, cellPrompt, planPrompt, parseAnswer, jsonOf, conflicts, report, writeOut,
 };

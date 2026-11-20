@@ -111,14 +111,16 @@ export class SwarmPanel {
     const st = this.state;
     const head = h('div', { class: 'swarm-head' },
       icon('comb', 'lead'),
-      h('div', { class: 'grow' }, h('b', { text: 'Соты' }),
+      h('div', { class: 'grow' }, h('b', { text: 'Рой агентов' }),
         h('span', { class: 'sub', text: this.busy ? 'рой работает — ответы собираются'
           : st && st.stage === 'done' ? 'рой закончил — соты остались с итогом' : 'рой агентов: проверяют разное одновременно' })),
       h('button', { class: 'icon-btn', title: 'Закрыть', onclick: () => this.close() }, icon('x', 'sm')));
     this.box.append(head);
 
     if (!this.allowed.on) {
-      this.box.append(h('p', { class: 'swarm-text', text: 'Соты для этого профиля выключены. Включить: SYSAI → Доступы → «Соты — рой агентов» — тумблер и число сот. Права у роя только на чтение.' }));
+      // текст собирает главный процесс (lib/swarm.js: offText): «доступов нет / обновляются» ≠ «выключено»
+      const off = this.allowed.off || 'Рой агентов для вас выключен. Включает администратор: SYSAI → Сеть агентов → Рой агентов.';
+      this.box.append(h('p', { class: 'swarm-text', text: `${off} Права у роя только на чтение.` }));
       return;
     }
 

@@ -64,7 +64,7 @@
 
   let gen = 0;
   window.sysai = {
-    info: async () => ({ version: '0.9.2', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
+    info: async () => ({ version: '0.10.1', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
       server: 'https://hostless.cloud/apps/sysai', home: 'C:\\Users\\ivanov\\SYSAI', profile: 'sysai' }),
     ready: () => {},
     acp: {

@@ -16,6 +16,8 @@ from types import SimpleNamespace
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 
 from pathlib import Path
 
@@ -30,7 +32,7 @@ SECTION_RU = {"commands": "Команды на ПК", "folders": "Папки", "
               "data": "Данные SYSAI", "internet": "Интернет", "models": "Нейронки", "schedule": "Дела по расписанию",
               "chat": "Кто может писать агенту", "skills": "Хаб: навыки и инструменты", "files": "Хранилище",
               "plc": "Сеть контроллеров", "edits": "Правки без вопросов",
-              "swarm": "Соты — рой агентов"}
+              "swarm": "Рой агентов"}
 TIERS = ("cheap", "mid", "strong", "vision", "auto")
 MODEL_TIERS = ("cheap", "mid", "strong", "vision")  # a real model behind each, chosen in the settings
 TEXT_TIERS = ("cheap", "mid", "strong")
@@ -95,7 +97,8 @@ EMPTY = {
     "edits": {"auto": "projects"},
     # Соты: сколько агентов может работать разом, когда инженер запускает рой на проверку спецификации и поиск.
     # Включено или нет — решает человек в настройках профиля; число сот не больше разрешённого (SWARM_CELLS).
-    "swarm": {"on": False, "cells": 8},
+    # «at» — сколько сот работают одновременно (остальные ждут очереди): не больше, чем сот.
+    "swarm": {"on": False, "cells": 8, "at": 6},
 }
 # Разрешённое число сот: меньше четырёх — это не рой, больше сорока — уже не читают, а мешают друг другу
 SWARM_CELLS = (4, 40)
@@ -269,8 +272,12 @@ def normalize(rules) -> dict:
         cells = int(sw.get("cells", 8))
     except (TypeError, ValueError):
         cells = 8
-    out["swarm"] = {"on": bool(sw.get("on", False)),
-                    "cells": max(SWARM_CELLS[0], min(SWARM_CELLS[1], cells))}
+    cells = max(SWARM_CELLS[0], min(SWARM_CELLS[1], cells))
+    try:
+        at = int(sw.get("at", EMPTY["swarm"]["at"]))
+    except (TypeError, ValueError):
+        at = EMPTY["swarm"]["at"]
+    out["swarm"] = {"on": bool(sw.get("on", False)), "cells": cells, "at": max(1, min(cells, at))}
     ed = rules.get("edits") if isinstance(rules.get("edits"), dict) else {}
     out["edits"] = {"auto": ed.get("auto") if ed.get("auto") in EDITS else "projects"}
     pl = rules.get("plc") if isinstance(rules.get("plc"), dict) else {}
@@ -564,6 +571,45 @@ def set_agent_access(agent_id: int, profile_id=KEEP, overrides=None, by: str = "
         journal.log("access.agent", agent.name, journal.changes(before, {"профиль": row.profile_id, "исключения": row.overrides}),
                     actor=by, agent_id=agent.id, session=s)
         s.commit()
+
+
+def set_agent_swarm(agent_id: int, on: bool, cells, at, by: str = "") -> dict:
+    """Соты одного человека («Сеть агентов → Соты»): меняется только раздел `swarm` его личных исключений, остальные
+    исключения и профиль остаются как были. -> the swarm the agent gets now.
+
+    Запись условная («если строку с тех пор никто не менял», по `updated_at`, который ставят оба писателя):
+    если между чтением и записью сохранили «Доступы» этого агента, читаем заново и сливаем с новым. Работает
+    и на SQLite (там нет FOR UPDATE), и на Postgres. Форма «Доступов» (`set_agent_access`) по-прежнему заменяет исключения
+    целиком — это её смысл: человек присылает весь JSON, каким его видит."""
+    swarm = normalize({"swarm": {"on": bool(on), "cells": cells, "at": at}})["swarm"]
+    for _ in range(5):
+        with SessionLocal() as s:
+            agent = s.get(NetAgent, agent_id)
+            if agent is None:
+                raise AccessError("Нет такого агента")
+            row = s.query(NetAgentAccess).filter(NetAgentAccess.agent_id == agent_id).first()
+            was = dict(row.overrides or {}) if row else {}
+            said = journal.changes({"соты": was.get("swarm")}, {"соты": swarm})
+            if row is None:
+                s.add(NetAgentAccess(agent_id=agent_id, overrides={"swarm": swarm}, updated_at=now(), updated_by=by))
+            else:
+                seen = row.updated_at
+                done = s.execute(update(NetAgentAccess).where(
+                    NetAgentAccess.id == row.id,
+                    NetAgentAccess.updated_at.is_(None) if seen is None else NetAgentAccess.updated_at == seen,
+                ).values(overrides={**was, "swarm": swarm}, updated_at=now(), updated_by=by).execution_options(
+                    synchronize_session=False))
+                if done.rowcount != 1:  # кто-то сохранил между чтением и записью — ещё раз, с его версией
+                    s.rollback()
+                    continue
+            journal.log("access.agent", agent.name, said, actor=by, agent_id=agent.id, session=s)
+            try:
+                s.commit()
+            except IntegrityError:  # строку только что создали другим писателем — снова, уже по ней
+                s.rollback()
+                continue
+            return swarm
+    raise AccessError("Исключения агента меняются прямо сейчас — повторите сохранение роя")
 
 
 # ----------------------------------------------------------------------------- the document an agent gets
@@ -875,5 +921,5 @@ def rules_from_form(form) -> dict:
         "files": {"read": lines("files_read"), "write": lines("files_write")},
         "plc": {"hosts": lines("plc_hosts")},
         "edits": {"auto": get("edits_auto")},
-        "swarm": {"on": bool(get("swarm_on")), "cells": get("swarm_cells")},
+        "swarm": {"on": bool(get("swarm_on")), "cells": get("swarm_cells"), "at": get("swarm_at")},
     })

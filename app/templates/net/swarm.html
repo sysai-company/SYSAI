@@ -1,0 +1,50 @@
+{% extends "base.html" %}{% block title %}Рой агентов — SYSAI{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset('net.css') }}">{% endblock %}
+{% block body %}
+<div class="page-h"><div><h1>{{ section }}</h1>
+  <p>Каждая сота — человек с агентом. Нажмите на соту, чтобы включить или выключить рой этому человеку; ниже — сколько у него сот и сколько из них работают одновременно. Агент получит изменение при следующей синхронизации, до 5 минут.</p></div>
+  <div class="actions"><a class="btn" href="/agents/access">Доступы</a></div></div>
+{% if msg %}<div class="card note" role="status">{{ msg }}</div>{% endif %}
+{% if error %}<div class="card note warn" role="alert">{{ error }}</div>{% endif %}
+
+{% if not cells %}
+<section class="card"><h2>Агентов пока нет</h2>
+  <p class="muted">Соты появятся, когда сотрудник подключит компьютер. <a href="/agents">Агенты →</a></p></section>
+{% else %}
+<div class="hive" role="list" aria-label="Люди с агентами">
+  {% for c in cells %}
+  <form method="post" action="/agents/swarm/{{ c.id }}" role="listitem">
+    {% if not c.swarm.on %}<input type="hidden" name="on" value="1">{% endif %}
+    <input type="hidden" name="cells" value="{{ c.swarm.cells }}"><input type="hidden" name="at" value="{{ c.swarm.at }}">
+    <button class="hx {{ 'on' if c.swarm.on else 'off' }}{{ ' picked' if chosen and chosen.id == c.id }}" data-agent="{{ c.id }}"
+      title="{{ 'Выключить' if c.swarm.on else 'Включить' }} рой: {{ c.user_name }}" aria-pressed="{{ 'true' if c.swarm.on else 'false' }}">
+      <b>{{ c.user_name }}</b><span class="small">{{ c.name }}</span>
+      <span class="hx-st">{% if c.swarm.on %}включены · {{ c.swarm.cells }} сот · {{ c.swarm.at }} разом{% else %}выключены{% endif %}</span>
+    </button>
+    {% if not (chosen and chosen.id == c.id) %}<a class="hx-edit small" href="/agents/swarm?pick={{ c.id }}#pick">настроить</a>{% endif %}
+  </form>
+  {% endfor %}
+</div>
+
+{% if chosen %}{% set sw = chosen.swarm %}
+<section class="card combs" id="pick">
+  <h2>{{ chosen.user_name }} — {{ chosen.name }}</h2>
+  <form method="post" action="/agents/swarm/{{ chosen.id }}" class="comb-wrap">
+    <div class="comb" aria-hidden="true">
+      {% for i in range(limits[1]) %}<span class="cell{{ ' run' if sw.on and i < sw.at else (' on' if sw.on and i < sw.cells else '') }}"></span>{% endfor %}
+    </div>
+    <div class="comb-side">
+      <div class="net-checks"><label><input type="checkbox" name="on" {{ 'checked' if sw.on }}> рой включён для этого человека</label></div>
+      <div class="ac-fields">
+        <label class="f">Сколько сот ({{ limits[0] }}–{{ limits[1] }}) <input name="cells" type="number" min="{{ limits[0] }}" max="{{ limits[1] }}" step="1" value="{{ sw.cells }}"></label>
+        <label class="f">Одновременно работают <input name="at" type="number" min="1" max="{{ limits[1] }}" step="1" value="{{ sw.at }}"></label>
+      </div>
+      <p class="ac-hint">Зелёные соты работают одновременно, светлые ждут очереди, тусклые — запас. Одновременно не больше, чем сот: лишнее SYSAI срежет.
+        {% if not chosen.swarm_own %}Сейчас — как в профиле «{{ chosen.profile }}»; сохранение сделает эту настройку личной.{% else %}Личная настройка: профиль «{{ chosen.profile }}» её не меняет.{% endif %}</p>
+      <div class="ac-save"><button class="btn primary">Сохранить</button></div>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}
