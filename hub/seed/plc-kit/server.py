@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plcbuild  # noqa: E402
 import plclink  # noqa: E402
 import plcme  # noqa: E402
-import oniproj  # noqa: E402
 import plcformats  # noqa: E402
 import plcgen  # noqa: E402
 import plcproj  # noqa: E402
@@ -23,7 +22,7 @@ import plcstage  # noqa: E402
 import plcstyle  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "1.10.0"
+VERSION = "2.0.0"
 PATH = {"type": "string", "description": r"Проект ПЛК: файл .project Machine Expert, .export или PLCopen .xml из него, "
                                          r"либо папка с файлами .st (plc_export_st), например C:\Projects\line\plc"}
 PROJECT = {"type": "string", "description": r"Файл проекта Machine Expert, например C:\Projects\line\plc\Line.project"}
@@ -212,58 +211,6 @@ TOOLS = [
         {"kind": {"type": "string", "enum": ["plc", "hmi"],
                   "description": "Только программы ПЛК или только экраны панели; пусто — всё"}},
         ()),
-    _ro("oni_windows", "Окна проекта ONI",
-        "Экраны проекта ONI Visual Studio (это русская сборка Flexem Studio; ONI — панель оператора, не ПЛК). "
-        "path — папка проекта (в ней <имя>.fsprj) или сам .fsprj. В ответе: имя, версия, программа, ПЛК из "
-        "ConnectInfo.cfg, стартовое окно и список окон (id, имя, папка, число объектов, размер). Имя окна — "
-        "первый текст на нём: своих имён у окон нет, личность — GUID.",
-        {"path": {"type": "string", "description": r"Папка проекта ONI, например C:\Projects\line\hmi"}},
-        ("path",)),
-    _ro("oni_objects", "Объекты окна ONI",
-        "Что нарисовано на окне: тип (клавиша, число, текст, картинка, линия…), подпись, координаты и размер, "
-        "привязка к ПЛК (адрес, устройство, тип) и есть ли картинка. window — GUID окна, имя файла или имя окна.",
-        {"path": {"type": "string", "description": "Папка проекта ONI"},
-         "window": {"type": "string", "description": "GUID окна, имя файла .wcfg или имя окна"}},
-        ("path", "window")),
-    _ro("oni_addresses", "Адреса ПЛК на экранах ONI",
-        "Какие адреса читают и пишут экраны: адрес, тип (Word/Bit), сколько объектов его используют и на каких "
-        "окнах. Адрес берётся из Abbreviation, а если её нет — собирается из RegisterId и MainAddress "
-        "(257 → SRB, 65791 → LW, 65792 → SRW, 65788 → SRWR, 6 → 4X_bit).",
-        {"path": {"type": "string", "description": "Папка проекта ONI"}},
-        ("path",)),
-    _ro("oni_check", "Проверка экранов ONI",
-        "Что не так с экранами, по строке на окно: объект целиком за окном (ошибка), объект выходит за окно "
-        "больше чем на 20 точек, клавиша или число ни к чему не привязаны, в проекте не описан ПЛК. "
-        "Объект, свисающий за край на пару точек, — норма для рисунка и не сообщается.",
-        {"path": {"type": "string", "description": "Папка проекта ONI"}},
-        ("path",)),
-    _rw("oni_new_project", "Новый проект экранов ONI",
-        "Создать проект экранов под выбранное разрешение: папка с <имя>.fsprj, одно окно нужного размера, описание "
-        "ПЛК (Modbus TCP) и стартовое окно. Разрешение — выбор инженера, а не константа: панели разные, и экран "
-        "под 1024×768 на 800×480 не влезает (список — oni_panel). Структура снята с настоящего проекта Достоево. "
-        "Чего не гарантирует: что ONI Visual Studio откроет файл без замечаний — программы здесь нет, проверить "
-        "нечем.",
-        {"path": {"type": "string", "description": r"Папка, где создать проект, например C:\Projects\line\hmi"},
-         "name": {"type": "string", "description": "Имя проекта: папка и <имя>.fsprj"},
-         "resolution": {"type": "string", "description": "Разрешение панели: 800x480, 1024x768, 1920x1080…"},
-         "device": {"type": "string", "description": "Протокол ПЛК, по умолчанию Modbus_TCP"},
-         "title": {"type": "string", "description": "Заголовок на первом экране"}},
-        ("path", "name", "resolution")),
-    _rw("oni_write_window", "Записать окно ONI обратно",
-        "Записать окно проекта ONI и прочитать его снова — в ответе не «задумано», а что получилось: объекты, "
-        "размер, совпало ли разобранное окно с исходным. Байт-в-байт не совпадёт (ElementTree поднимает "
-        "неймспейсы к корню), но для ONI это одно и то же — сверяется разобранное окно. Проверено на всех 45 "
-        "окнах Достоево: расхождений 0.",
-        {"path": {"type": "string", "description": "Папка проекта ONI"},
-         "window": {"type": "string", "description": "GUID окна, имя файла .wcfg или имя окна"},
-         "out_file": {"type": "string", "description": "Куда записать; пусто — в тот же файл"}},
-        ("path", "window")),
-    _ro("oni_panel", "Разрешение панели ONI",
-        "Под какое разрешение нарисованы экраны (самое большое окно проекта) и из чего выбирать при создании "
-        "нового: 800×480, 1024×600, 1024×768, 1280×800, 1366×768, 1920×1080, 640×480, 480×272. Панели разные — "
-        "экран под 1024×768 на 800×480 не влезает, поэтому разрешение это выбор инженера, а не константа.",
-        {"path": {"type": "string", "description": "Папка проекта ONI"}},
-        ("path",)),
     _rw("plc_export", "Сохранить программу в формате",
         "Записать программу в выбранном формате: format — me, oni или hawell (plc_formats покажет, что готово). "
         "Для me это тот же сборщик, что plc_project_build: src_dir, template_file, out_file. Формат, который ещё "
@@ -498,7 +445,7 @@ def _call(name, args):
             fmt = plcformats.get(args.get("format") or "")
             if fmt["kind"] == "hmi":
                 return _text(f"«{fmt['title']}» — это экраны панели, а не программа ПЛК. Программу пишут в me или "
-                             f"hawell; экраны — oni_new_project и oni_write_window.", True,
+                             f"hawell; экраны — отдельный инструмент oni-project (oni_screens, oni_write_window).", True,
                              {"format": fmt["id"], "kind": "hmi", "written": False})
             if not fmt["write"]:
                 return _text(f"Формат «{fmt['title']}» ещё не разобран: {fmt['note']}. Файл не записан — "
@@ -615,35 +562,6 @@ def _call(name, args):
             return _text("\n".join(f"- {f['id']} ({f['kind_title']}): {f['title']} — {_state(f)}; {f['note']}"
                                    for f in fmts),
                          data={"formats": fmts})
-        if name == "oni_new_project":
-            try:
-                return _text(_json(oniproj.new_project(args["path"], args["name"], args["resolution"],
-                                                       args.get("device") or "Modbus_TCP",
-                                                       args.get("title") or "")))
-            except oniproj.OniError as exc:
-                return _text(str(exc), True)
-        if name == "oni_write_window":
-            try:
-                p = oniproj.load(args["path"])
-                w = p.window(args["window"])
-                if w is None:
-                    return _text(f"нет окна «{args['window']}»", True)
-                return _text(_json(oniproj.write_window(w, args.get("out_file") or None)))
-            except oniproj.OniError as exc:
-                return _text(str(exc), True)
-        if name in ("oni_windows", "oni_objects", "oni_addresses", "oni_check", "oni_panel"):
-            try:
-                if name == "oni_windows":
-                    return _text(_json(oniproj.windows(args["path"])))
-                if name == "oni_objects":
-                    return _text(_json(oniproj.objects(args["path"], args["window"])))
-                if name == "oni_addresses":
-                    return _text(_json(oniproj.addresses(args["path"])))
-                if name == "oni_check":
-                    return _text(_json(oniproj.check(args["path"])))
-                return _text(_json(oniproj.panel(args["path"])))
-            except oniproj.OniError as exc:
-                return _text(str(exc), True)
         p = _open(args["path"])
         if name == "plc_info":
             if str(args["path"]).lower().endswith((".project", ".projectarchive")):

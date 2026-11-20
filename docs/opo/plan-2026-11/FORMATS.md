@@ -86,8 +86,10 @@ HMI/Frame/Startup/Startup.sscfg   заставка
 
 ### Инструменты
 
-`oni_windows`, `oni_objects`, `oni_addresses`, `oni_check`, `oni_panel` — в `plc-kit` 1.9.0.
-Код — `hub/seed/plc-kit/oniproj.py`. Тесты — `tests/test_hub_seed_oni.py` (8 тестов, проверены мутацией).
+`oni_windows`, `oni_objects`, `oni_addresses`, `oni_check`, `oni_panel` — в отдельном инструменте
+`oni-project` (экраны панели это не программа ПЛК; в `plc-kit` их больше нет). Проект Haiwell Happy —
+тоже отдельный инструмент `haiwell-happy`, а не часть `plc-kit`: другая среда, другой формат, другой язык.
+Код — `hub/seed/oni-project/oniproj.py`. Тесты — `tests/test_hub_seed_oni.py` (8 тестов, проверены мутацией).
 
 ### Запись: что проверено
 

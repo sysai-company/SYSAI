@@ -54,6 +54,7 @@ REGISTERS = {
     "65792": "SRW",      # системное слово
     "65788": "SRWR",     # системный регистр слова
     "6": "4X_bit",       # бит Modbus
+    "65540": "4X",       # регистр хранения Modbus (слово)
 }
 
 
@@ -182,6 +183,12 @@ def _label(obj) -> str:
     for c in obj.iter(NS + "LabelContent"):
         if c.text and c.text.strip():
             return c.text.strip()
+    # У клавиши подпись лежит не в LabelContent, а в Text её состояния — иначе «Пуск» на экране есть,
+    # а в отчёте клавиша безымянная.
+    for c in obj.iter(NS + "Text"):
+        text = (c.text or "").strip()
+        if text and text != "Quit":
+            return text
     return ""
 
 
@@ -190,7 +197,8 @@ def _picture(obj) -> bool:
 
 
 class Obj:
-    __slots__ = ("type", "kind", "name", "z", "x", "y", "w", "h", "addresses", "label", "picture", "id")
+    __slots__ = ("type", "kind", "name", "z", "x", "y", "w", "h", "addresses", "label", "picture", "id",
+                 "navigates")
 
     def __init__(self, e):
         self.type = e.get(XSITYPE) or ""
@@ -203,11 +211,16 @@ class Obj:
         self.addresses = _addresses(e)
         self.label = _label(e)
         self.picture = _picture(e)
+        # Клавиша перехода на другое окно адреса не читает — и «мёртвой» от этого не становится. Действие
+        # в ONI записано типом элемента (`i:type`), а не именем тега, поэтому смотрим на атрибут.
+        self.navigates = any((x.get(XSITYPE) or "").endswith("WindowOperSwitchAction")
+                             or x.tag == NS + "WindowOperSwitchAction" for x in e.iter())
 
     def as_dict(self) -> dict:
         return {"type": self.type, "kind": self.kind, "name": self.name, "id": self.id, "z": self.z,
                 "x": self.x, "y": self.y, "w": self.w, "h": self.h,
-                "addresses": self.addresses, "label": self.label, "picture": self.picture}
+                "addresses": self.addresses, "label": self.label, "picture": self.picture,
+                "navigates": self.navigates}
 
 
 class Window:
@@ -345,7 +358,7 @@ class Project:
                     outside.append(o)
                 elif o.x + o.w > w.width + 20 or o.y + o.h > w.height + 20:
                     over.append(o)
-                if o.type in ("SwitchInfo", "NumericCharInfo") and not o.addresses:
+                if o.type in ("SwitchInfo", "NumericCharInfo") and not o.addresses and not o.navigates:
                     dead.append(o)
             where = f"окно «{w.name or w.id}» ({w.id[:8]})"
             if outside:

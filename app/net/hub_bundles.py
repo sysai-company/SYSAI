@@ -13,6 +13,8 @@ BUNDLES = {
     "ebpro-mnemoscheme": "EasyBuilder Pro — умение сборки мнемосхем",
     "ebpro-gui": "EasyBuilder Pro — работа в программе (Windows)",
     "plc-kit": "ПЛК Machine Expert (ST) — инструмент MCP",
+    "oni-project": "Экраны панели ONI — инструмент MCP",
+    "haiwell-happy": "ПЛК Haiwell Happy (.gpc, LD) — инструмент MCP",
     "machine-expert": "Machine Expert: проект .project, компиляция, контроллер (Windows) — инструмент MCP",
     "pic-index": "Библиотека картинок оборудования: индекс и поиск — инструмент MCP",
     "doc-kit": "Документация в Word по образцу — инструмент MCP",

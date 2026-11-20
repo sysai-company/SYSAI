@@ -7,26 +7,28 @@
 читать и ещё не уметь писать. «Готово» здесь значит «проверено на настоящем файле», а не «код написан».
 
 У панелей разное разрешение экрана, и экран под 1024×768 на 800×480 не влезает. Поэтому разрешение — это
-выбор инженера при создании проекта, а не константа: список лежит в `oniproj.RESOLUTIONS`.
+выбор инженера при создании проекта, а не константа; подробности и список — у инструмента панели (`bundle`).
+
+Реестр нужен, чтобы агент спросил «в каком формате», и чтобы было видно, какой инструмент за формат отвечает:
+экраны ONI это `oni-project`, экраны EasyBuilder это `ebpro-cmtp`, Haiwell Happy это `haiwell-happy`.
 """
-import oniproj
 
 FORMATS = (
-    {"id": "me", "title": "Machine Expert", "kind": "plc", "icon": "img/format-me.svg", "ext": ".project",
+    {"id": "me", "bundle": "plc-kit", "title": "Machine Expert", "kind": "plc", "icon": "img/format-me.svg", "ext": ".project",
      "read": True, "write": True,
      "note": "настоящий .project: plc_project_build собирает его из папки ST и шаблона с тем же контроллером; "
              "языки — LD и ST"},
-    {"id": "hawell", "title": "Haiwell Happy", "kind": "plc", "icon": "img/format-hawell.svg", "ext": ".gpc",
+    {"id": "hawell", "bundle": "haiwell-happy", "title": "Haiwell Happy", "kind": "plc", "icon": "img/format-hawell.svg", "ext": ".gpc",
      "read": False, "write": False,
      "note": "проект .gpc с диска есть (600_S1_Благовещенск), но тело файла сжато своим способом: zlib-потоков "
              "нет, энтропия 7,06 бит/байт — структура ещё не снята. Язык у Haiwell только LD"},
-    {"id": "oni", "title": "ONI", "kind": "hmi", "icon": "img/format-oni.svg", "ext": ".fsprj",
+    {"id": "oni", "bundle": "oni-project", "title": "ONI", "kind": "hmi", "icon": "img/format-oni.svg", "ext": ".fsprj",
      "read": True, "write": True,
      "note": "экраны: проект — папка с <имя>.fsprj и HMI/Frame/**/*.wcfg, окна и объекты это открытый XML "
              "(45 окон и 1206 объектов Достоево разобраны). Окно перезаписывается без потерь — проверено на всех "
              "45 окнах Достоево, расхождений 0. Новый проект собирается по образцу, но открытие в ONI Visual "
              "Studio не проверено: программы нет"},
-    {"id": "easybuilder", "title": "EasyBuilder", "kind": "hmi", "icon": "img/format-easybuilder.svg", "ext": ".cmtp",
+    {"id": "easybuilder", "bundle": "ebpro-cmtp", "title": "EasyBuilder", "kind": "hmi", "icon": "img/format-easybuilder.svg", "ext": ".cmtp",
      "read": True, "write": True,
      "note": "экраны Weintek: ebpro-cmtp читает и правит проект .cmtp (окна, объекты, картинки)"},
 )
@@ -49,8 +51,6 @@ def listing(kind: str = "") -> list:
             continue
         one = dict(f)
         one["kind_title"] = KINDS.get(f["kind"], f["kind"])
-        if f["kind"] == "hmi":
-            one["resolutions"] = oniproj.resolutions()
         out.append(one)
     return out
 
@@ -61,8 +61,6 @@ def get(name: str) -> dict:
         if key in (f["id"], f["title"].lower()):
             one = dict(f)
             one["kind_title"] = KINDS.get(f["kind"], f["kind"])
-            if f["kind"] == "hmi":
-                one["resolutions"] = oniproj.resolutions()
             return one
     raise FormatError(f"формат «{name}» неизвестен: бывают {', '.join(f['id'] for f in FORMATS)}")
 

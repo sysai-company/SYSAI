@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-KIT = ROOT / "hub" / "seed" / "plc-kit"
+KIT = ROOT / "hub" / "seed" / "oni-project"
 
 
 def _load(name, path):
@@ -25,6 +25,12 @@ def _load(name, path):
 
 
 oniproj = _load("oniproj", KIT / "oniproj.py")
+# `oniscreens` сделан как обычный модуль рядом (`import oniproj`), поэтому нужные ему имена кладём в sys.modules —
+# так его можно загрузить по пути и при этом не трогать sys.path (иначе он перебьёт `server` у других тестов).
+sys.modules.setdefault("oniproj", oniproj)
+onitpl = _load("onitpl", KIT / "onitpl.py")
+sys.modules.setdefault("onitpl", onitpl)
+oniscreens = _load("oniscreens", KIT / "oniscreens.py")
 
 NS = "http://schemas.flexem.com/fs/model/1"
 XSI = "http://www.w3.org/2001/XMLSchema-instance"
@@ -260,3 +266,87 @@ print(json.dumps(out, ensure_ascii=False))
     assert json.loads(out[5]["text"])["same"] is True
     assert json.loads(out[6]["text"])["panel"]["id"] == "1280x800"
     assert "нет такой папки" in out[7]["text"]
+
+
+def _spec():
+    """Спецификация в том виде, в каком её отдаёт `plcspec`: механизмы, объектные сигналы, каналы ввода-вывода."""
+    return {
+        "project": {"name": "Линия протравливания", "controller": "M241", "panel": "ONI"},
+        "mechanisms": [
+            {"id": "N1", "type": "noria", "title": "Нория 1",
+             "in": {"speed": "DI.I0", "belt": "!DI.I1", "local_stop": ""},
+             "out": {"run": "DQ.Q0"}, "params": {"start_delay_s": 5}},
+            {"id": "C1", "type": "conveyor", "title": "Конвейер 1",
+             "in": {"speed": "DI.I3"}, "out": {"run": "DQ.Q1"}},
+        ],
+        "signals": [{"id": "EStop", "title": "Аварийный стоп", "role": "estop", "channel": "!DI.I5"}],
+    }
+
+
+def test_screens_are_drawn_from_the_specification(tmp_path):
+    out = tmp_path / "HMI"
+    made = oniscreens.build(_spec(), out)
+    assert set(w["name"] for w in made["windows"]) == {"Линия протравливания", "Нория 1", "Конвейер 1"}
+    project = oniproj.load(out)
+    assert project.check()["summary"] == {"error": 0, "warning": 0, "info": 0}
+    assert project.panel()["id"] == "1024x768"
+
+
+def test_every_signal_gets_its_own_modbus_register(tmp_path):
+    made = oniscreens.build(_spec(), tmp_path / "HMI")
+    bits = [m for m in made["map"] if m["kind"] == "bit"]
+    words = [m for m in made["map"] if m["kind"] == "word"]
+    assert len({m["address"] for m in bits}) == len(bits), "два сигнала на одном бите"
+    assert all(m["address"].startswith("4X_bit") for m in bits)
+    assert [m["address"] for m in words] == ["4X1001"], "число должно идти в регистр хранения 4X"
+    assert {m["role"] for m in bits} >= {"speed", "belt", "run", "estop", "cmd_start", "cmd_stop"}
+
+
+def test_a_key_shows_its_caption_and_writes_its_command(tmp_path):
+    out = tmp_path / "HMI"
+    oniscreens.build(_spec(), out)
+    noria = oniproj.load(out).window("Нория 1")
+    start = [o for o in noria.objects if o.label == "Пуск"]
+    assert len(start) == 1, "у клавиши «Пуск» должна быть подпись"
+    assert start[0].addresses and start[0].addresses[0]["address"].startswith("4X_bit")
+
+
+def test_a_navigation_key_opens_a_window_and_reads_nothing(tmp_path):
+    out = tmp_path / "HMI"
+    oniscreens.build(_spec(), out)
+    project = oniproj.load(out)
+    back = [o for o in project.window("Нория 1").objects if o.label == "Назад"]
+    assert back, "на экране механизма должна быть клавиша возврата"
+    assert back[0].navigates and back[0].addresses == [], "у перехода не должно быть адреса"
+    assert project.check()["summary"]["warning"] == 0, "переход не должен считаться мёртвой клавишей"
+
+
+def test_a_signal_without_a_channel_is_named_not_hidden(tmp_path):
+    made = oniscreens.build(_spec(), tmp_path / "HMI")
+    assert "N1.local_stop" in made["unwired"]
+    assert "N1.cmd_start" not in made["unwired"], "своя команда — не пропавший канал"
+
+
+def test_the_emergency_stop_sits_on_the_main_screen_not_inside_a_tile(tmp_path):
+    out = tmp_path / "HMI"
+    oniscreens.build(_spec(), out)
+    project = oniproj.load(out)
+    assert "Аварийный стоп" in [o.label for o in project.window("win-main").objects]
+    assert "Аварийный стоп" not in [o.label for o in project.window("Нория 1").objects]
+
+
+def test_screens_refuse_a_folder_that_already_holds_screens(tmp_path):
+    out = tmp_path / "HMI"
+    oniscreens.build(_spec(), out)
+    with pytest.raises(oniscreens.ScreenError, match="уже есть"):
+        oniscreens.build(_spec(), out)
+
+
+def test_an_unknown_resolution_is_refused(tmp_path):
+    with pytest.raises(oniscreens.ScreenError, match="разрешение"):
+        oniscreens.build(_spec(), tmp_path / "HMI", resolution="1024x768x2")
+
+
+def test_a_specification_without_mechanisms_is_refused(tmp_path):
+    with pytest.raises(oniscreens.ScreenError, match="ни одного механизма"):
+        oniscreens.build({"mechanisms": []}, tmp_path / "HMI")

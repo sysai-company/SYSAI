@@ -146,15 +146,19 @@ def test_the_formats_separate_the_plc_from_the_panel():
     assert "LD и ST" in fmts["me"]["note"] and "только LD" in fmts["hawell"]["note"]
 
 
-def test_a_panel_format_offers_the_screen_resolutions():
-    """Панели разные: разрешение — выбор инженера, а не константа в коде."""
-    got = _server([("plc_formats", {"kind": "hmi"})])[0]
-    fmts = got["structuredContent"]["formats"]
-    assert [f["id"] for f in fmts] == ["oni", "easybuilder"]
-    ids = [r["id"] for r in fmts[0]["resolutions"]]
-    assert ids[:3] == ["800x480", "1024x600", "1024x768"] and "1920x1080" in ids
-    assert all({"id", "w", "h", "title"} <= set(r) for r in fmts[0]["resolutions"])
-    assert "resolutions" not in _server([("plc_formats", {"kind": "plc"})])[0]["structuredContent"]["formats"][0]
+def test_each_format_names_the_tool_that_answers_for_it():
+    """Формат — это не только расширение: за каждый отвечает свой инструмент, и это видно в реестре.
+
+    Экраны отдельные: ONI это oni-project, EasyBuilder это ebpro-cmtp. Разрешения панели живут у инструмента
+    панели, а не в общем реестре — иначе список пришлось бы держать в двух местах.
+    """
+    got = _server([("plc_formats", {})])[0]
+    fmts = {f["id"]: f for f in got["structuredContent"]["formats"]}
+    assert fmts["me"]["bundle"] == "plc-kit"
+    assert fmts["hawell"]["bundle"] == "haiwell-happy"
+    assert fmts["oni"]["bundle"] == "oni-project"
+    assert fmts["easybuilder"]["bundle"] == "ebpro-cmtp"
+    assert "resolutions" not in fmts["oni"], "разрешения панели спрашивают у oni_panel"
 
 
 def test_a_panel_format_is_not_a_plc_program(tmp_path):
@@ -163,7 +167,7 @@ def test_a_panel_format_is_not_a_plc_program(tmp_path):
     got = _server([("plc_export", {"format": "oni", "src_dir": str(tmp_path), "out_file": str(out)})])[0]
     assert got.get("isError") is True
     text = got["content"][0]["text"]
-    assert "экраны панели, а не программа ПЛК" in text and "oni_new_project" in text
+    assert "экраны панели" in text and "oni-project" in text
     assert not out.exists()
 
 
