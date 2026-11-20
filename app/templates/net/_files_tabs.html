@@ -1,0 +1,7 @@
+{# Two views of one section: files, and the picture pack that lives inside them. The menu has one item for both. #}
+{% from "_icons.html" import icon %}
+{% set on_pics = request.url.path.startswith('/pictures') %}
+<nav class="nx-tabs" aria-label="Хранилище">
+  <a class="nx-tab{{ '' if on_pics else ' on' }}" href="/files"{% if not on_pics %} aria-current="page"{% endif %}>{{ icon('folder') }}<span>Файлы</span></a>
+  <a class="nx-tab{{ ' on' if on_pics else '' }}" href="/pictures"{% if on_pics %} aria-current="page"{% endif %}>{{ icon('image') }}<span>Картинки оборудования</span></a>
+</nav>

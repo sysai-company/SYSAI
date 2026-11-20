@@ -27,3 +27,7 @@ ICONS.update({
     'image': '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/>',
     'drafting': '<path d="M3 21l6-6M9 15l9-9 3 3-9 9zM14 4l6 6M3 21h7"/>',
 })
+
+# The theme switch: the icon shows the theme you would switch to, not the one you are in.
+ICONS.update({'sun': '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+              'moon': '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/>'})

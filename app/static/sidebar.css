@@ -57,3 +57,8 @@
   .side { height: auto; }
   .side-fold { display: none; }
 }
+
+/* The theme switch sits by the account: on a wide screen the top bar is hidden, so this is the only visible one. */
+.side .me .theme-tog { width: 30px; height: 30px; border-radius: 8px; margin-left: 0; flex: none; }
+.side .me .theme-tog .i { width: 16px; height: 16px; }
+html.side-mini .side .me .theme-tog { margin: 0 auto; }

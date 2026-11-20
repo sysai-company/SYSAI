@@ -23,6 +23,7 @@
 </article>
 {% endif %}
 {% endmacro %}
+{% include "net/_files_tabs.html" %}
 <div class="page-h">
   <div><h1>Хранилище</h1>
     <p class="nx-sum"><b>{{ summary.files }}</b> {{ plural(summary.files, 'файл', 'файла', 'файлов') }} · <b>{{ summary.size_ru }}</b> · <b>{{ summary.sections }}</b> {{ plural(summary.sections, 'раздел', 'раздела', 'разделов') }}{% if not summary.s3 %} · <span title="S3 не настроено (Интеграции): файлы лежат на диске сервера">на диске сервера</span>{% endif %}</p></div>

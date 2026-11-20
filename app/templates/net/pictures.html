@@ -1,6 +1,7 @@
 {% extends "base.html" %}{% block title %}Картинки оборудования — SYSAI{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset('net.css') }}">{% endblock %}
 {% block body %}
+{% include "net/_files_tabs.html" %}
 <div class="page-h"><div><h1>Картинки оборудования</h1>
   <p>Пак картинок для экранов панели: что где лежит, что это за механизм (нория, муз, шнек, триер…) и какие у него
      состояния. Агент сначала ищет картинку здесь и только потом рисует свою.</p></div>

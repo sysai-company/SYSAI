@@ -220,3 +220,19 @@
     .finally(() => { clearTimeout(timer); timer = setTimeout(poll, card.dataset.mode === 'busy' ? 5000 : 15000); });
   poll();
 })();
+
+// Тема: светлая или тёмная. Выбор помним и в localStorage, и в cookie — cookie нужна серверу, чтобы страница
+// отрисовалась сразу в нужной теме и не мигала на первой загрузке.
+(function () {
+  const btns = document.querySelectorAll('[data-theme-tog]');
+  if (!btns.length) return;
+  const flip = () => {
+    const now = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    const next = now === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('sysai_theme', next); } catch (e) { /* приватный режим — обойдёмся без памяти */ }
+    document.cookie = 'sysai_theme=' + next + '; path=/; max-age=31536000; samesite=lax';
+  };
+  // Кнопок две: в боковом меню (видна на большом экране) и в верхней панели (на телефоне).
+  btns.forEach((btn) => btn.addEventListener('click', flip));
+})();

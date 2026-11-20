@@ -98,7 +98,7 @@ code { background: var(--card2); border: 1px solid var(--line); padding: 1px 6px
 .side a.nav.on svg { stroke: var(--clay); }
 .side .new { margin: 0 4px 14px; justify-content: center; }
 .side .sp { flex: 1; } .side .me { display: flex; align-items: center; gap: 10px; padding: 10px; border-top: 1px solid var(--line); margin-top: 8px; font-size: 13.5px; color: var(--soft); }
-.side a.nav.side-agent { margin-top: 10px; padding: 9px 12px; border: 1px solid var(--line); background: rgba(30,29,26,.55); }
+.side a.nav.side-agent { margin-top: 10px; padding: 9px 12px; border: 1px solid var(--line); background: var(--bg2); }
 .side a.nav.side-agent:hover, .side a.nav.side-agent.on { border-color: var(--line2); background: var(--card2); }
 .side .side-agent-t { display: flex; flex-direction: column; line-height: 1.25; color: var(--text); font-weight: 600; }
 .side .side-agent-t small { font-size: 11.5px; font-weight: 400; color: var(--muted); }
@@ -950,3 +950,58 @@ body.org-map-page { height:100dvh; min-height:100dvh; overflow:hidden; }
 .method-table td:last-child { text-align: right; white-space: nowrap; }
 .method-table td:first-child { min-width: 150px; }
 .ref-runs { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+
+/* ---------- светлая тема: бумага, а не прожектор ---------- */
+/* Две темы, обе приятные глазу: тёмная — тёплый уголь, светлая — тёплая бумага. Не белый лист: он выжигает,
+   поэтому фон #f4f1e9, карточки почти сливаются, а акценты затемнены, чтобы текст на них читался. */
+html[data-theme="light"] {
+  --bg: #f4f1e9; --bg2: #fbf9f3; --card: #fffdf7; --card2: #f1ece1;
+  --line: #e3ddcd; --line2: #d0c9b6;
+  --text: #23201a; --soft: #4f493b; --muted: #8b8471;
+  --clay: #b0554b; --clay2: #c2685c; --clay-bg: rgba(176,85,75,.10);
+  --sblue: #47679f; --sblue-bg: rgba(71,103,159,.11);
+  --green: #4c8352; --amber: #a87a2c; --red: #a8463a; --blue: #47679f;
+  color-scheme: light;
+}
+html[data-theme="light"] .aura i { opacity: .14; }
+html[data-theme="light"] .aura.soft i { opacity: .08; }
+html[data-theme="light"] .aura::after { opacity: .16; }
+html[data-theme="light"] ::selection { background: var(--clay); color: #fffdf7; }
+html[data-theme="light"] input[type=date], html[data-theme="light"] select { color-scheme: light; }
+html[data-theme="light"] .net-diff .add, html[data-theme="light"] .net-ok { color: #2f6b3a; }
+html[data-theme="light"] .net-diff .del, html[data-theme="light"] .net-err { color: #a8463a; }
+
+/* ---------- свои галочки и переключатели: не стоковый квадрат браузера ---------- */
+input[type=checkbox], input[type=radio] { appearance: none; -webkit-appearance: none; margin: 0; flex: none;
+  width: 19px; height: 19px; border: 1.5px solid var(--muted); background: var(--card); border-radius: 6px;
+  cursor: pointer; position: relative; display: inline-grid; place-content: center; vertical-align: -3px;
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .12s; }
+input[type=radio] { border-radius: 50%; }
+input[type=checkbox]:hover, input[type=radio]:hover { border-color: var(--clay); }
+input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 0; border-color: var(--clay); box-shadow: 0 0 0 3px var(--clay-bg); }
+input[type=checkbox]:active, input[type=radio]:active { transform: scale(.93); }
+input[type=checkbox]:checked, input[type=radio]:checked { border-color: transparent;
+  background: linear-gradient(155deg, var(--clay) 0%, var(--clay2) 55%, var(--sblue) 100%);
+  box-shadow: 0 2px 8px -3px var(--clay), inset 0 1px 0 rgba(255,255,255,.35); }
+input[type=checkbox]:checked::after { content: ""; width: 10px; height: 5px; border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+input[type=radio]:checked::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; }
+input[type=checkbox]:indeterminate { border-color: var(--clay); background: var(--clay-bg); }
+input[type=checkbox]:indeterminate::after { content: ""; width: 9px; height: 2px; border-radius: 1px; background: var(--clay); }
+input[type=checkbox]:disabled, input[type=radio]:disabled { opacity: .45; cursor: not-allowed; }
+.net-checks label, .ag-table td { --box: 1; }
+
+/* ---------- переключатель темы в верхней панели ---------- */
+.theme-tog { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; padding: 0;
+  border: 1px solid var(--line); background: var(--bg2); color: var(--soft); cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s; }
+.theme-tog:hover { color: var(--text); border-color: var(--line2); background: var(--card); }
+.theme-tog .i { width: 17px; height: 17px; }
+html[data-theme="light"] .theme-tog .ic-sun { display: none; }        /* в светлой — луна: переключить на тёмную */
+html:not([data-theme="light"]) .theme-tog .ic-moon { display: none; }
+.theme-tog { margin-left: auto; }
+
+/* переключатель темы живёт в подвале меню: верхняя панель на большом экране скрыта */
+.side .theme-tog.side-theme { width: 30px; height: 30px; flex: none; border-color: transparent; background: transparent; }
+.side .theme-tog.side-theme:hover { background: var(--card2); border-color: var(--line); }
+html.side-mini .side .theme-tog.side-theme { display: none; }
