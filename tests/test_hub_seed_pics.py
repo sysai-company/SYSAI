@@ -364,7 +364,7 @@ def test_the_mcp_server_end_to_end(tmp_path):
     assert (results[3]["file"], results[3]["equipment"], results[3]["state"]) == ("img0042.png", "сирена", "off")
     assert results[4]["summary"]["warning"] >= 3
     assert out[7]["result"]["isError"] and "нет папки" in out[7]["result"]["content"][0]["text"]
-    assert out[8]["result"]["isError"] and "не хватает поля 'query'" in out[8]["result"]["content"][0]["text"]
+    assert out[8]["result"]["isError"] and "нужны параметры: query" in out[8]["result"]["content"][0]["text"]
     assert out[9]["result"]["isError"] and "нет инструмента pics_nothing" in out[9]["result"]["content"][0]["text"]
 
 
@@ -431,4 +431,5 @@ def test_the_mcp_server_draws_the_missing_states(tmp_path):
     assert (Path(root) / "шнек" / "шнек_alarm.png").is_file()
     second = json.loads(out[3]["result"]["content"][0]["text"])
     assert second["made"] == [] and second["complete"] is True
-    assert out[4]["result"]["isError"] and "для какого механизма" in out[4]["result"]["content"][0]["text"]
+    # без оборудования — называет поле и что в него писать: «equipment — Вид оборудования: «нория», «шнек»…»
+    assert out[4]["result"]["isError"] and "нужны параметры: equipment" in out[4]["result"]["content"][0]["text"]

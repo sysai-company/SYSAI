@@ -464,6 +464,7 @@ def test_server_reads_exports_and_checks(tmp_path):
     assert checked["missing"] == ["1 Общие сведения", "1.1 Комплектность", "2 Технические данные", "3 Гарантии"] and len(checked["extra"]) == 8
     assert r[5]["isError"] and "должен кончаться на .docx" in r[5]["content"][0]["text"]
     assert r[6]["isError"] and r[6]["content"][0]["text"].startswith("файл: ") and not (tmp_path / "out" / "x.docx").exists()
-    assert r[7]["isError"] and "не хватает поля 'out_file'" in r[7]["content"][0]["text"]
+    # сообщение называет поле и его описание из схемы — по нему агент исправляется сам
+    assert r[7]["isError"] and "нужны параметры: out_file" in r[7]["content"][0]["text"]
     assert r[8]["isError"] and r[8]["content"][0]["text"].startswith("файл: ")
     assert r[9]["isError"] and "нет инструмента doc_nope" in r[9]["content"][0]["text"]

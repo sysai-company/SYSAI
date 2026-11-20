@@ -541,15 +541,18 @@ def test_the_agent_page_gives_the_one_line_installer(client, net_agent):
 
 
 def test_an_old_synchronizer_is_seen_on_the_agent_page(client, net_agent):
+    """Отставание синхронизатора видно и объяснено: что стоит на ПК, что отдаёт SYSAI и что будет дальше."""
     with SessionLocal() as s:
-        s.get(NetAgent, net_agent["id"]).versions = {"hermes": "0.12.0", "sync": "0.0.9"}
+        s.get(NetAgent, net_agent["id"]).versions = {"hermes": "0.12.0", "sysai-agent": "0.0.9"}
         s.commit()
     page = client.get(f"/agents/{net_agent['id']}").text
-    assert f"на сервере синхронизатор {installer.version()}" in page
+    assert "синхронизатор 0.0.9" in page and f"SYSAI отдаёт {installer.version()}" in page
+    assert "обновится сам" in page
     with SessionLocal() as s:
-        s.get(NetAgent, net_agent["id"]).versions = {"hermes": "0.12.0", "sync": installer.version()}
+        s.get(NetAgent, net_agent["id"]).versions = {"hermes": "0.12.0", "sysai-agent": installer.version()}
         s.commit()
-    assert "на сервере синхронизатор" not in client.get(f"/agents/{net_agent['id']}").text
+    page = client.get(f"/agents/{net_agent['id']}").text
+    assert "обновится сам" not in page and "компьютер ещё не сообщал" not in page
 
 
 def _ask(home, tool, args, cwd=""):
