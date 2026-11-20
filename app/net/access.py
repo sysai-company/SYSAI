@@ -30,7 +30,7 @@ SECTION_RU = {"commands": "Команды на ПК", "folders": "Папки", "
               "data": "Данные SYSAI", "internet": "Интернет", "models": "Нейронки", "schedule": "Дела по расписанию",
               "chat": "Кто может писать агенту", "skills": "Хаб: навыки и инструменты", "files": "Хранилище",
               "plc": "Сеть контроллеров", "edits": "Правки без вопросов",
-              "swarm": "Соты — рой агентов"}
+              "swarm": "Рой агентов"}
 TIERS = ("cheap", "mid", "strong", "vision", "auto")
 MODEL_TIERS = ("cheap", "mid", "strong", "vision")  # a real model behind each, chosen in the settings
 TEXT_TIERS = ("cheap", "mid", "strong")
@@ -573,15 +573,23 @@ def set_agent_access(agent_id: int, profile_id=KEEP, overrides=None, by: str = "
 
 def set_agent_swarm(agent_id: int, on: bool, cells, at, by: str = "") -> dict:
     """Соты одного человека («Сеть агентов → Соты»): меняется только раздел `swarm` его личных исключений, остальные
-    исключения и профиль остаются как были. -> the swarm the agent gets now."""
-    with SessionLocal() as s:
-        if s.get(NetAgent, agent_id) is None:
-            raise AccessError("Нет такого агента")
-        row = s.query(NetAgentAccess).filter(NetAgentAccess.agent_id == agent_id).first()
-        overrides = dict(row.overrides or {}) if row else {}
+    исключения и профиль остаются как были. Чтение и запись — в одной сессии, под блокировкой строки: одновременное
+    сохранение «Доступов» этого агента не затирается. -> the swarm the agent gets now."""
     swarm = normalize({"swarm": {"on": bool(on), "cells": cells, "at": at}})["swarm"]
-    overrides["swarm"] = swarm
-    set_agent_access(agent_id, KEEP, overrides, by=by)
+    with SessionLocal() as s:
+        agent = s.get(NetAgent, agent_id)
+        if agent is None:
+            raise AccessError("Нет такого агента")
+        row = (s.query(NetAgentAccess).filter(NetAgentAccess.agent_id == agent_id).with_for_update().first())
+        if row is None:
+            row = NetAgentAccess(agent_id=agent_id, overrides={})
+            s.add(row)
+        was = dict(row.overrides or {})
+        row.overrides = {**was, "swarm": swarm}
+        row.updated_at, row.updated_by = now(), by
+        journal.log("access.agent", agent.name, journal.changes({"соты": was.get("swarm")}, {"соты": swarm}),
+                    actor=by, agent_id=agent.id, session=s)
+        s.commit()
     return swarm
 
 

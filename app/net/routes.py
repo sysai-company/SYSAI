@@ -358,16 +358,13 @@ async def agent_action(request: Request, agent_id: int, action: str):
     raise HTTPException(404, "Нет такого действия")
 
 
-# ============================================================================= pages: the swarm («Соты»)
+# ============================================================================= pages: the swarm («Рой агентов»)
 @router.get("/agents/swarm", response_class=HTMLResponse)
 def swarm_page(request: Request, msg: str = "", error: str = "", pick: str = ""):
-    """«Соты — рой агентов»: сота на человека с агентом; включить рой, число сот и сколько работают разом — каждому
+    """«Рой агентов»: сота на человека с агентом; включить рой, число сот и сколько работают разом — каждому
     свои (личные исключения агента, раздел swarm), без правки общего профиля."""
     me = _person(request, admin=True)
-    cells = []
-    for a in agents.listing(me):
-        doc = access.document(a["id"])
-        cells.append({**a, "swarm": doc["rules"]["swarm"], "own": "swarm" in (doc["overrides"] or {})})
+    cells = agents.listing(me)  # раздел swarm уже в списке: документ агента собирается один раз
     chosen = next((c for c in cells if str(c["id"]) == pick), cells[0] if cells else None)
     return _page(request, "net/swarm.html", cells=cells, chosen=chosen, msg=msg, error=error,
                  limits=access.SWARM_CELLS, section=access.SECTION_RU["swarm"])

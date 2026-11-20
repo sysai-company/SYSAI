@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block title %}Соты — SYSAI{% endblock %}
+{% extends "base.html" %}{% block title %}Рой агентов — SYSAI{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset('net.css') }}">{% endblock %}
 {% block body %}
 <div class="page-h"><div><h1>{{ section }}</h1>
@@ -40,7 +40,7 @@
         <label class="f">Одновременно работают <input name="at" type="number" min="1" max="{{ limits[1] }}" step="1" value="{{ sw.at }}"></label>
       </div>
       <p class="ac-hint">Зелёные соты работают одновременно, светлые ждут очереди, тусклые — запас. Одновременно не больше, чем сот: лишнее SYSAI срежет.
-        {% if not chosen.own %}Сейчас — как в профиле «{{ chosen.profile }}»; сохранение сделает эту настройку личной.{% else %}Личная настройка: профиль «{{ chosen.profile }}» её не меняет.{% endif %}</p>
+        {% if not chosen.swarm_own %}Сейчас — как в профиле «{{ chosen.profile }}»; сохранение сделает эту настройку личной.{% else %}Личная настройка: профиль «{{ chosen.profile }}» её не меняет.{% endif %}</p>
       <div class="ac-save"><button class="btn primary">Сохранить</button></div>
     </div>
   </form>

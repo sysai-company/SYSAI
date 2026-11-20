@@ -362,5 +362,7 @@ def listing(user: dict | None = None) -> list:
                         "host": a.host, "versions": a.versions or {}, "last_seen_at": a.last_seen_at,
                         "last_error": a.last_error, "profile": doc["profile"]["name"], "rev": doc["rev"],
                         "applied_rev": row.applied_rev if row else "", "applied_at": row.applied_at if row else None,
-                        "update_rev": int(a.update_rev or 0)})
+                        "update_rev": int(a.update_rev or 0),
+                        # «Рой агентов»: что агент получает и личная ли это настройка — из того же документа, второй раз не собирается
+                        "swarm": doc["rules"]["swarm"], "swarm_own": "swarm" in (doc["overrides"] or {})})
         return out

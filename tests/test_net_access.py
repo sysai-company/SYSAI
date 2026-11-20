@@ -5,7 +5,8 @@ import copy
 from app import config
 from app.db import SessionLocal, User
 from app.net import access, agents
-from app.net.models import NetAccessProfile
+from app import ui_icons
+from app.net.models import NetAccessProfile, NetAgentAccess
 
 
 def _profile(code):
@@ -403,7 +404,11 @@ def test_the_swarm_is_switched_for_one_person_on_the_honeycomb_page(client, net_
     other_before = access.document(other.id)["rev"]
 
     html = client.get("/agents/swarm").text
-    assert 'href="/agents/swarm"' in html, "«Соты» в группе «Сеть агентов»"
+    assert 'href="/agents/swarm"' in html, "«Рой агентов» в группе «Сеть агентов»"
+    # пункт называется «Рой агентов», значок — соты (просьба владельца)
+    item = html.split('href="/agents/swarm"', 1)[1].split("</a>", 1)[0]
+    assert '<span class="nav-t">Рой агентов</span>' in item and ui_icons.ICONS["comb"] in item
+    assert "<title>Рой агентов — SYSAI</title>" in html and "<h1>Рой агентов</h1>" in html
     assert f'data-agent="{net_agent["id"]}"' in html and f'data-agent="{other.id}"' in html, "сота на каждого"
     assert f'action="/agents/swarm/{net_agent["id"]}"' in html
 
@@ -419,8 +424,49 @@ def test_the_swarm_is_switched_for_one_person_on_the_honeycomb_page(client, net_
 
     page = client.get(f"/agents/swarm?pick={net_agent['id']}").text
     assert "12 сот · 12 разом" in page
+    # карточка — именно выбранного человека, с его числами (а не первого в списке)
+    card = page.split('id="pick"', 1)[1]
+    assert f'action="/agents/swarm/{net_agent["id"]}" class="comb-wrap"' in card
+    assert 'name="cells" type="number"' in card and 'value="12"></label>' in card
+    assert 'name="at" type="number" min="1" max="40" step="1" value="12"' in card
+    other_card = client.get(f"/agents/swarm?pick={other.id}").text.split('id="pick"', 1)[1]
+    assert f'action="/agents/swarm/{other.id}" class="comb-wrap"' in other_card
+    assert 'name="at" type="number" min="1" max="40" step="1" value="6"' in other_card
     client.post(f"/agents/swarm/{net_agent['id']}", data={"cells": "12", "at": "6"})  # снова нажали — выключили
     assert access.document(net_agent["id"])["rules"]["swarm"]["on"] is False
+
+
+def test_the_honeycomb_builds_each_agents_document_once(client, net_agent, monkeypatch):
+    """Страница берёт рой из списка агентов: документ (хаб, характер, колесо синхронизатора) — один раз на агента."""
+    with SessionLocal() as s:
+        admin_id = s.query(User).filter(User.role == "superuser").first().id
+    agents.create(admin_id, "opo-third", net_agent["department_id"], None, "hermes", "", by="test")
+    calls = []
+    real = access.document
+    monkeypatch.setattr(access, "document", lambda agent_id, *a, **k: calls.append(agent_id) or real(agent_id, *a, **k))
+    assert client.get("/agents/swarm").status_code == 200
+    assert len(calls) == len(set(calls)) == 2, calls
+
+
+def test_a_swarm_save_does_not_overwrite_a_save_of_the_same_agent_in_between(client, net_agent, monkeypatch):
+    """«Рой агентов» меняет только раздел swarm: исключения, сохранённые на «Доступах» между чтением и записью,
+    не затираются старой копией."""
+    agent_id = net_agent["id"]
+    real = access.normalize
+    fired = []
+
+    def normalize_with_a_save_in_between(rules):
+        if not fired and isinstance(rules, dict) and set(rules) == {"swarm"}:
+            fired.append(1)
+            access.set_agent_access(agent_id, overrides={"models": {"budget_day_usd": 3.5}}, by="other-admin")
+        return real(rules)
+    monkeypatch.setattr(access, "normalize", normalize_with_a_save_in_between)
+    access.set_agent_swarm(agent_id, True, 10, 4, by="boss")
+    monkeypatch.setattr(access, "normalize", real)
+    assert fired
+    with SessionLocal() as s:
+        row = s.query(NetAgentAccess).filter(NetAgentAccess.agent_id == agent_id).one()
+        assert row.overrides == {"models": {"budget_day_usd": 3.5}, "swarm": {"on": True, "cells": 10, "at": 4}}
 
 
 def test_only_an_admin_opens_the_honeycomb(client, net_on):

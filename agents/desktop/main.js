@@ -28,7 +28,7 @@ const rules = require('./lib/rules');
 const { AutoApprove } = require('./lib/autoapprove');
 const apps = require('./lib/apps');
 const updates = require('./lib/updates');
-const { Swarm, allowedOf: swarmAllowedOf } = require('./lib/swarm');
+const { Swarm, allowedOf: swarmAllowedOf, offText: swarmOffText } = require('./lib/swarm');
 const relaunch = require('./lib/relaunch');
 const pkg = require('./package.json');
 
@@ -828,7 +828,10 @@ async function askSwarm({ prompt }) {
 // Соты — это настройка профиля из подписанного документа доступов: окно не решает само, сколько их.
 function swarmAllowed() {
   const got = rules.load(HOME);
-  return { ...swarmAllowedOf(got && got.rules), why: (got && got.error) || '' };
+  const allow = { ...swarmAllowedOf(got && got.rules), why: (got && got.error) || '' };
+  // нет доступов на ПК — рой закрыт, но причина другая, чем «администратор выключил», и окно так и говорит
+  if (allow.why) allow.on = false;
+  return { ...allow, off: swarmOffText(allow) };
 }
 
 function swarmSend(state) {
@@ -1067,7 +1070,7 @@ function ipc() {
   handle('swarm:start', async (opts) => {
     if (swarm) throw new Error('рой уже идёт: дождитесь отчёта или остановите его');
     const allow = swarmAllowed();
-    if (!allow.on) throw new Error('соты не включены: SYSAI → Сеть агентов → Соты — включите и задайте число');
+    if (!allow.on) throw new Error(allow.off);
     const o = opts && typeof opts === 'object' ? opts : {};
     const question = String(o.question || '').trim();
     if (!question) throw new Error('рой без задачи: напишите, что проверять');

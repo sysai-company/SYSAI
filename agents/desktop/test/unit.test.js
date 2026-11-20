@@ -1597,6 +1597,30 @@ test('the window starts the swarm with the allowed «at once», not a fixed six'
   assert.match(main, /new Swarm\(\{[^}]*concurrency: allow\.at/s, 'рой идёт с разрешённым «разом»');
 });
 
+test('a computer without synced access is told so, not that the swarm was turned off', () => {
+  // нет access.json / он обновляется: причина из rules.load, а не «выключен»
+  const home = tmp();
+  try {
+    const got = rules.load(home);
+    assert.ok(got.error);
+    const said = swarmLib.offText({ ...swarmLib.allowedOf(got.rules), why: got.error });
+    assert.match(said, /недоступен/);
+    assert.ok(said.includes(got.error), 'причина названа словами синхронизатора');
+    assert.doesNotMatch(said, /выключен/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+  // доступы есть, рой выключен — так и сказано, и сказано, где включают
+  assert.match(swarmLib.offText(swarmLib.allowedOf({ swarm: { on: false, cells: 8 } })), /выключен.*Рой агентов/);
+  assert.equal(swarmLib.offText(swarmLib.allowedOf({ swarm: { on: true, cells: 8 } })), '');
+  // окно отдаёт этот текст и в панель, и в ошибку запуска
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert.match(main, /off: swarmOffText\(allow\)/);
+  assert.match(main, /if \(!allow\.on\) throw new Error\(allow\.off\)/);
+  const panel = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'swarm.js'), 'utf8');
+  assert.match(panel, /this\.allowed\.off \|\|/);
+});
+
 test('a cell that does not answer in time becomes «не успел», not a broken swarm', async () => {
   const swarm = new swarmLib.Swarm({
     question: 'долгая проверка', items: ['A', 'B'], cells: 2, minutes: 0.02, plan: false, arbiter: false,
