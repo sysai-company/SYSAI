@@ -82,8 +82,14 @@ export function toast(text, kind = 'info', ms = 5000, action = null) {
     b.addEventListener('click', (e) => { e.stopPropagation(); el.remove(); action.onClick?.(); });
     el.append(b);
   }
-  toasts.append(el);
   const close = () => el.remove();
+  // a red toast that stays is an error the person cannot put away: the cross says it can be closed, and the card
+  // under it says the same (chat.notice)
+  if (kind === 'err' || kind === 'warn' || kind === 'update') {
+    const x = h('button', { class: 'toast-x', title: 'Закрыть', onclick: (e) => { e.stopPropagation(); close(); } }, icon('x', 'sm'));
+    el.append(x);
+  }
+  toasts.append(el);
   el.addEventListener('click', close);
   if (ms > 0) setTimeout(close, ms);
   return el;

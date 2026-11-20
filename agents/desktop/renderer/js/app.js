@@ -52,6 +52,7 @@ const S = {
   stored: new Map(), // id → {id, title, project, cwd, updated, messages}
   deleted: new Set(), // что человек удалил: Hermes может всё ещё перечислять эту сессию
   alias: new Map(), // id сессии Hermes → id разговора окна (когда Hermes завёл новую для восстановленной истории)
+  job: null, // {stage, at, offered, note, base, status} — «Установить»: что делает синхронизатор прямо сейчас
 };
 
 const SAVE_MS = 500;
@@ -792,14 +793,91 @@ async function checkUpdates(verbose) {
   return u;
 }
 
+// «Установить»: the synchronizer installs in the background, so the window shows the job as it goes — a strip with
+// the stage and a moving line, not a toast that says «ставится» and then nothing. The person must see either the new
+// version or where it stopped, with the journal one click away.
+let jobTimer = null;
+let jobBar = null;
+
+function jobStrip() {
+  if (!jobBar) {
+    jobBar = h('div', { class: 'upd-bar job', hidden: true });
+    updateBar().after(jobBar);
+  }
+  return jobBar;
+}
+
+const JOB_TEXT = {
+  asked: ['Синхронизатор получил просьбу', 'Скачивает новую сборку и ставит её — окно перезапустится само.'],
+  installing: ['Ставит обновление', 'Уже скачал и раскладывает файлы: агент и окно подхватят новую сборку.'],
+  done: ['Обновление установлено', 'Новая сборка на месте. Перезапустите окно — оно откроется уже новым.'],
+  stuck: ['Обновление не движется', 'Пять минут без изменений: посмотрите журнал обновления — там причина.'],
+  dead: ['Синхронизатор не запущен', 'Обновлять некому: запустите SYSAI-агент (sysai-agent run) или переустановите со страницы агента.'],
+};
+
+function drawJob() {
+  const j = S.job;
+  const bar = jobStrip();
+  if (!j) { bar.hidden = true; return; }
+  const [title, sub] = JOB_TEXT[j.stage] || JOB_TEXT.asked;
+  const version = (j.offered || {}).version || '';
+  const secs = Math.max(1, Math.round((Date.now() - j.at) / 1000));
+  const running = j.stage === 'asked' || j.stage === 'installing';
+  const act = j.stage === 'done'
+    ? [h('button', { class: 'btn primary sm', text: 'Перезапустить окно', onclick: () => api.win.relaunch().catch((e) => toast(e.message, 'err')) })]
+    : j.stage === 'dead' || j.stage === 'stuck'
+      ? [h('button', { class: 'btn soft sm', text: 'Журнал', onclick: () => api.shell.open(`${S.info.home}/logs/update.log`).catch((e) => toast(e.message, 'err')) }),
+        h('button', { class: 'btn soft sm', text: 'Повторить', onclick: () => installUpdate() })]
+      : [];
+  bar.hidden = false;
+  bar.classList.toggle('bad', j.stage === 'dead' || j.stage === 'stuck');
+  bar.classList.toggle('ok', j.stage === 'done');
+  clear(bar);
+  bar.append(
+    h('span', { class: 'upd-dot' }),
+    h('div', { class: 'upd-text' },
+      h('b', { text: `${title}${version ? ` ${version}` : ''}` }),
+      h('span', { text: j.stage === 'asked' || j.stage === 'installing' ? `${sub} · ${secs} с` : j.note || sub })),
+    h('div', { class: 'upd-act' }, ...act,
+      h('button', { class: 'icon-btn sm', title: 'Скрыть', onclick: () => { S.job = null; if (jobTimer) { clearInterval(jobTimer); jobTimer = null; } drawJob(); drawStatus(); } }, icon('x', 'sm'))),
+    running ? h('div', { class: 'upd-line' }) : null);
+  drawStatus();
+}
+
 async function installUpdate() {
+  const offered = (S.upd && S.upd.offered) || {};
   const res = await api.updates.now().catch((e) => ({ asking: false, note: e.message || String(e) }));
-  if (!res.asking) {
-    toast(res.note, 'err', 20000);
+  S.job = { stage: res.asking ? 'asked' : 'dead', at: Date.now(), offered, note: res.note || '', base: null };
+  S.updHidden = true;
+  drawJob();
+  drawUpdate();
+  if (!res.asking) return;
+  if (!jobTimer) jobTimer = setInterval(pollJob, 2500);
+}
+
+// Every couple of seconds: did the version change (done), is the journal growing (installing), is the loop running at
+// all? Nothing is installed by the window — it only watches what the synchronizer is doing.
+async function pollJob() {
+  const j = S.job;
+  if (!j) {
+    if (jobTimer) { clearInterval(jobTimer); jobTimer = null; }
     return;
   }
-  toast('Синхронизатор ставит обновление — окно перезапустится само.', 'update', 0);
-  setTimeout(() => checkUpdates(false), 45000);
+  const st = await api.updates.status().catch(() => null);
+  if (!st) return;
+  const age = Date.now() - j.at;
+  if (!j.base) j.base = { version: st.version, logAt: st.logAt };
+  const offered = String((j.offered || {}).version || '');
+  if (age > 240000 && (j.stage === 'asked' || j.stage === 'installing')) j.stage = 'stuck';
+  else if (offered && st.version && st.version === offered && st.version !== j.base.version) j.stage = 'done';
+  else if (!st.running) j.stage = 'dead';
+  else if (st.logAt && st.logAt !== j.base.logAt) j.stage = 'installing';
+  j.status = st;
+  drawJob();
+  if (j.stage === 'done' || j.stage === 'dead' || j.stage === 'stuck') {
+    if (jobTimer) { clearInterval(jobTimer); jobTimer = null; }
+    if (j.stage === 'done') checkUpdates(false);
+  }
 }
 
 function drawSidebar() {
@@ -983,6 +1061,13 @@ function drawStatus() {
     { label: 'Журнал окна', value: 'logs', icon: 'fileText' },
   ], { above: true, onPick: (v) => (v === 'restart' ? restartAcp() : api.win.logs().then((p) => openPath(p))) }));
   const items = [state];
+  if (S.job && S.job.stage !== 'done') {
+    const [title] = JOB_TEXT[S.job.stage] || JOB_TEXT.asked;
+    const chip = h('button', { class: `item job${S.job.stage === 'dead' || S.job.stage === 'stuck' ? ' bad' : ''}`,
+      title: 'Обновление: нажмите — подробности' }, h('span', { class: 'job-spin' }), h('span', { text: title.toLowerCase() }));
+    chip.addEventListener('click', () => drawJob());
+    items.push(chip);
+  }
   if (S.info.agent) items.push(h('span', { class: 'item', title: 'Агент SYSAI этого компьютера' }, icon('users', 'sm'), h('span', { text: S.info.agent })));
   const model = conv && (conv.config || []).find((o) => o.id === 'model');
   if (model) {

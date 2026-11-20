@@ -31,6 +31,14 @@ const FORMATS = {
   },
 };
 
+// Кто кого обслуживает: чтобы и окно, и подсказка агенту называли одну и ту же программу для того же железа.
+const VENDORS = {
+  me: { vendor: 'Schneider Electric', serves: 'контроллеры M2xx/M5xx (TM241, TM251, TM262…)' },
+  hawell: { vendor: 'Haiwell', serves: 'контроллеры Haiwell — программа списком инструкций (LD ↔ STL по F7)' },
+  easybuilder: { vendor: 'Weintek', serves: 'панели cMT/eMT — экраны и мнемосхемы' },
+  oni: { vendor: 'ONI (Flexem)', serves: 'панели ONI/Flexem — экраны и мнемосхемы' },
+};
+
 const IDS = Object.keys(FORMATS);
 const SKIP = new Set(['_work', 'materials', '.sysai', '.git', 'node_modules']);
 
@@ -83,6 +91,7 @@ function detect(dir, { readdir = require('node:fs').readdirSync, stat = require(
   walk(dir, 3);                                    // hmi/HMI/Frame/*.wcfg — три уровня ниже корня проекта
   return IDS.filter((id) => found[id]).map((id) => ({
     id, title: FORMATS[id].title, kind: FORMATS[id].kind, open: FORMATS[id].open, file: found[id],
+    vendor: VENDORS[id].vendor, serves: VENDORS[id].serves,
   }));
 }
 
@@ -128,4 +137,45 @@ function plan(id, file) {
   return { id, kind: f.open, exe: f.exe[0], file, keys: f.open === 'paste' ? ['F7', 'Ctrl+V', 'F9'] : [] };
 }
 
-module.exports = { FORMATS, IDS, format, candidates, detect, projectRoot, pasteScript, plan };
+// «Где и что будет»: the controller program and the panel program of a project — from the files in it (openers) and
+// from what the agent wrote down (pipeline.json facts). The window shows it before any work starts, so a person sees
+// which program will open and which panel will come alive, instead of finding out by the first click.
+// Какая программа отвечает этому железу: панель cMT/eMT — EasyBuilder, панель ONI/Flexem — ONI, контроллер
+// Haiwell — Happy, остальные ПЛК Schneider — Machine Expert. Если марка неизвестна, берём первую найденную в проекте.
+function pickFor(openers, kind, fact) {
+  const list = (openers || []).filter((o) => o.kind === kind);
+  const f = String(fact || '');
+  const want = kind === 'hmi'
+    ? [[/weintek|c?mt\d|e?mt\d|weinview/i, 'easybuilder'], [/oni|flexem/i, 'oni']]
+    : [[/haiwell|hawell|s\d\d\d/i, 'hawell'], [/schneider|tm2|tm5|m2\d\d|m5\d\d|machine expert/i, 'me']];
+  for (const [re, id] of want) {
+    if (!re.test(f)) continue;
+    const hit = list.find((o) => o.id === id);
+    if (hit) return hit;
+  }
+  return list[0] || null;
+}
+
+function environment(facts = {}, openers = []) {
+  const side = (kind, what, fact) => {
+    const open = pickFor(openers, kind, fact);
+    return {
+      what,
+      id: open ? open.id : '',
+      fact: String(fact || ''), // что решил инженер/агент: контроллер или панель
+      program: open ? open.title : '',
+      vendor: open ? VENDORS[open.id].vendor : '',
+      serves: open ? VENDORS[open.id].serves : '',
+      file: open ? open.file : '',
+      ready: Boolean(open),
+    };
+  };
+  return {
+    plc: side('plc', 'ПЛК', facts.controller),
+    hmi: side('hmi', 'Экраны', facts.panel),
+    resolution: String(facts.resolution || ''),
+    link: String(facts.link || ''),
+  };
+}
+
+module.exports = { FORMATS, IDS, VENDORS, format, candidates, detect, projectRoot, pasteScript, plan, environment, pickFor };

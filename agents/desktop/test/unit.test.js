@@ -1435,3 +1435,61 @@ test('a project is erased together with its materials on request', async () => {
   await assert.rejects(() => pj.remove('Достоево', 'erase'), /нет такого проекта/, 'второй раз — честная ошибка');
   await assert.rejects(() => pj.remove('../SYSAI Проекты', 'erase'), /нет такого проекта|названии/, 'за папку проектов не выйти');
 });
+
+// ---------------------------------------------------------------- «где и что будет»
+test('the window says what will open where: controller to program, panel to program', () => {
+  const openers = [
+    { id: 'me', title: 'EcoStruxure Machine Expert', kind: 'plc', file: 'plc/Elevator.project' },
+    { id: 'easybuilder', title: 'EasyBuilder Pro', kind: 'hmi', file: 'hmi/Line.cmtp' },
+  ];
+  const env = apps.environment({ controller: 'M241', panel: 'cMT3072X', resolution: '1024×768', link: 'opcua' }, openers);
+  assert.equal(env.plc.fact, 'M241');
+  assert.equal(env.plc.program, 'EcoStruxure Machine Expert');
+  assert.equal(env.plc.vendor, 'Schneider Electric');
+  assert.equal(env.plc.ready, true);
+  assert.equal(env.hmi.program, 'EasyBuilder Pro');
+  assert.equal(env.hmi.vendor, 'Weintek');
+  assert.equal(env.resolution, '1024×768');
+  assert.equal(env.link, 'opcua');
+  // пустой проект: строки есть, программы ещё нет — окно так и говорит, а не молчит
+  const none = apps.environment({}, []);
+  assert.equal(none.plc.ready, false);
+  assert.equal(none.plc.program, '');
+  assert.equal(none.hmi.fact, '');
+  // Haiwell открывается не файлом: программа уходит в буфер обмена — это тоже видно заранее
+  const hw = apps.environment({ controller: 'Haiwell S16' }, [{ id: 'hawell', title: 'Haiwell Happy', kind: 'plc', file: 'hawell/program.il' }]);
+  assert.equal(hw.plc.vendor, 'Haiwell');
+  assert.match(hw.plc.serves, /списком инструкций/);
+});
+
+test('a project file names the program and the hardware it serves', async () => {
+  const root = tmp();
+  try {
+    const pj = new Projects(path.join(root, 'Система'));
+    fs.mkdirSync(path.join(pj.dir('Система'), 'plc'), { recursive: true });
+    fs.writeFileSync(path.join(pj.dir('Система'), 'plc', 'Elevator.project'), 'x', 'utf8');
+    const found = apps.detect(pj.dir('Система'));
+    assert.equal(found.length, 1);
+    assert.equal(found[0].id, 'me');
+    assert.equal(found[0].vendor, 'Schneider Electric', 'окно называет вендора, а не только имя программы');
+    assert.match(found[0].serves, /M2xx/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the panel decides which panel program opens: Weintek is not ONI', () => {
+  const openers = [
+    { id: 'oni', title: 'ONI Visual Studio', kind: 'hmi', file: 'hmi' },
+    { id: 'easybuilder', title: 'EasyBuilder Pro', kind: 'hmi', file: 'hmi/Line.cmtp' },
+    { id: 'me', title: 'EcoStruxure Machine Expert', kind: 'plc', file: 'plc/X.project' },
+    { id: 'hawell', title: 'Haiwell Happy', kind: 'plc', file: 'hawell/program.il' },
+  ];
+  assert.equal(apps.environment({ panel: 'cMT3072X' }, openers).hmi.id, 'easybuilder', 'Weintek cMT — EasyBuilder');
+  assert.equal(apps.environment({ panel: 'eMT3120A' }, openers).hmi.id, 'easybuilder');
+  assert.equal(apps.environment({ panel: 'ONI FL-1200' }, openers).hmi.id, 'oni', 'панель ONI — ONI Visual Studio');
+  assert.equal(apps.environment({ controller: 'TM241CE40R' }, openers).plc.id, 'me');
+  assert.equal(apps.environment({ controller: 'Haiwell S16' }, openers).plc.id, 'hawell');
+  // марка не названа — берём первую найденную, но окно так и подписывает («не выбран»)
+  assert.equal(apps.environment({}, openers).hmi.id, 'oni');
+});

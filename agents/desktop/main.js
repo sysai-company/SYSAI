@@ -963,6 +963,9 @@ function ipc() {
     return updates.check({ home: HOME, server: cfg.server, token: cfg.token, request: netJson });
   });
   handle('update:now', () => updates.wake(HOME));
+  // «Что с обновлением сейчас»: окно спрашивает каждые пару секунд после «Установить» — ставит синхронизатор в
+  // фоне, и человек должен видеть, что дело идёт (и где встало, если не идёт).
+  handle('update:status', () => updates.status({ home: HOME }));
   handle('win:overlay', (color) => {
     if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('нет цвета');
     try {
@@ -984,6 +987,12 @@ function ipc() {
   handle('canvas:close', () => canvas.close());
   handle('canvas:eb', () => openInEasyBuilder(canvas.file));
   handle('apps:detect', (dir) => apps.detect(need(dir)));
+  // «Где и что будет»: что открывается (detect) и какая программа отвечает названному железу (environment) — одной
+  // выдачей, чтобы окно не выбирало программу само.
+  handle('apps:plan', (dir, facts) => {
+    const openers = apps.detect(need(dir));
+    return { openers, environment: apps.environment(facts || {}, openers) };
+  });
   handle('apps:open', (id, file) => openInApp(String(id || ''), file));
   ipcMain.on('canvas:pointer', (event, p) => {
     if (win && event.sender === win.webContents && p && typeof p === 'object') canvas.pointer(p);

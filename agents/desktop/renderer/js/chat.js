@@ -477,12 +477,32 @@ export class Conversation {
   }
 
   // ---------- the turn
+  // A notice the person can put away: an error that has been dealt with must not hang in the conversation forever.
   notice(text, kind = '') {
     const el = h('div', { class: `notice msg ${kind}` }, icon(kind === 'err' ? 'alert' : kind === 'warn' ? 'alert' : 'info', 'sm'),
       h('div', { class: 'grow', text }));
-    this._push({ type: 'notice', el });
+    if (kind === 'err' || kind === 'warn') {
+      const x = h('button', { class: 'icon-btn sm notice-x', title: 'Убрать' }, icon('x', 'sm'));
+      x.addEventListener('click', () => { el.remove(); this.blocks = this.blocks.filter((b) => b.el !== el); this._grow(); });
+      el.append(x);
+    }
+    this._push({ type: 'notice', el, kind });
     this._rec({ t: 'notice', text, kind });
     return el;
+  }
+
+  // «Само проходит»: the red rows of a past failure go when a turn ends well — the work goes on, the old error is
+  // history. A notice passed as `keep` stays (the current turn's own error).
+  clearErrors(keep = null) {
+    let gone = false;
+    this.blocks = this.blocks.filter((b) => {
+      if (b.type !== 'notice' || b.el === keep) return true;
+      if (b.kind !== 'err' && b.kind !== 'warn') return true;
+      b.el.remove();
+      gone = true;
+      return false;
+    });
+    if (gone) this._grow();
   }
 
   start() {
@@ -506,6 +526,8 @@ export class Conversation {
     else if (stopReason === 'max_tokens') this.notice('Ответ оборвался: модель упёрлась в предел длины ответа. Попросите продолжить.', 'warn');
     else if (stopReason === 'max_turn_requests') this.notice('Агент сделал слишком много шагов подряд и остановился. Попросите продолжить.', 'warn');
     else if (stopReason === 'refusal') this.notice('Модель отказалась отвечать на это.', 'warn');
+    // прошлые красные строки уходят, когда ход кончился без ошибки: починили — и ошибка больше не висит
+    if (!error) this.clearErrors();
     this._changed('running');
     this._grow();
   }

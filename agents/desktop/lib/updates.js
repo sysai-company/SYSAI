@@ -102,4 +102,30 @@ function wake(home) {
   return { asking: true };
 }
 
-module.exports = { cmp, compare, offerOf, tail, check, wake, readJson };
+// «Что происходит с обновлением прямо сейчас»: the window asks every couple of seconds after «Установить», because
+// installing is done by the synchronizer in the background and the person must see that it moves — and where it
+// stopped when it does not. Nothing here changes anything: only what is on disk is read.
+function status({ home }) {
+  const state = readJson(path.join(home, 'state.json'), {}) || {};
+  const versions = (state && state.versions) || {};
+  const logFile = path.join(home, 'logs', 'update.log');
+  let logAt = '';
+  try {
+    logAt = fs.statSync(logFile).mtime.toISOString();
+  } catch { /* ещё не обновлялся */ }
+  return {
+    running: fs.existsSync(path.join(home, 'run.lock')),
+    asked: fs.existsSync(path.join(home, 'wake')),
+    version: String(versions['sysai-agent'] || ''),
+    updateTo: String(state.update_to || ''),
+    updateAt: state.update_at || '',
+    desktopTo: String(state.desktop_to || ''),
+    error: String(state.error || ''),
+    errorAt: state.error_at || '',
+    syncedAt: state.pulse_at || state.synced_at || '',
+    logAt,
+    log: tail(logFile, 6),
+  };
+}
+
+module.exports = { cmp, compare, offerOf, tail, check, wake, status, readJson };

@@ -155,7 +155,7 @@ export class ProjectsView {
       h('button', { class: 'icon-btn sm', title: 'Обновить', onclick: () => this.open(info.name) }, icon('refresh', 'sm')),
       h('button', { class: 'icon-btn sm danger', title: 'Удалить проект…', onclick: () => this.remove() }, icon('trash', 'sm')));
     const list = h('div', { class: 'ex-list' });
-    clear(this.el).append(bar, this._pipeline(info), this._openers(info), this._actions(info), list);
+    clear(this.el).append(bar, this._pipeline(info), this._where(info), this._openers(info), this._actions(info), list);
     this._drop(list);
     if (!info.materials.length) {
       list.append(message('Материалов пока нет', 'Перетащите сюда всё, что есть по объекту: ТЗ, схемы, чертежи, таблицы '
@@ -210,6 +210,36 @@ export class ProjectsView {
   // «Открыть в программе»: кнопка на каждый формат, который уже есть в проекте. Нажатие открывает среду вендора на
   // этом компьютере и кладёт в неё наш результат — файл проекта (ONI, EasyBuilder, Machine Expert) или, у Haiwell,
   // программу в буфер обмена. Нет ни одного результата — строки нет вовсе, чтобы не занимать место.
+  // «Где и что будет»: контроллер → программа, панель → программа и разрешение — до начала работы, а не после
+  // первого нажатия. Строки берутся из фактов проекта (pipeline.json) и из файлов, которые в нём есть.
+  _where(info) {
+    const facts = (info.pipeline && info.pipeline.facts) || {};
+    const box = h('div', { class: 'pj-where', hidden: true });
+    api.apps.plan(info.path, facts).then((plan) => {
+      const env = (plan && plan.environment) || {};
+      const openers = (plan && plan.openers) || [];
+      const row = (side) => h('div', { class: 'pj-where-row' },
+        h('span', { class: 'w', text: side.what === 'ПЛК' ? 'ПЛК' : 'Экраны' }),
+        h('span', { class: 'what', text: side.fact || 'не выбран' }),
+        h('span', { class: 'arr', text: '→' }),
+        side.ready
+          ? h('button', { class: 'prog', title: `${side.vendor}: ${side.serves}\n${side.file}\nНажмите — открыть в программе`,
+            onclick: () => this.openIn({ id: side.id, title: side.program, file: side.file }) },
+          h('img', { src: `img/format-${side.id}.svg`, alt: '' }),
+          h('span', { text: side.program }))
+          : h('span', { class: 'prog none', text: 'программы пока нет' }),
+        side.what === 'Экраны' && env.resolution ? h('span', { class: 'tail', text: env.resolution }) : null);
+      box.append(row(env.plc || { what: 'ПЛК' }), row(env.hmi || { what: 'Экраны' }));
+      if (env.link) box.append(h('div', { class: 'pj-where-note', text: `Связь: ${String(env.link).toUpperCase()}` }));
+      if (!(env.plc && env.plc.fact) || !(env.hmi && env.hmi.fact)) {
+        box.append(h('div', { class: 'pj-where-hint', text: 'Скажите агенту, что за железо: «контроллер M241, панель cMT3072X, 1024×768» — '
+          + 'он запишет это в память проекта, и окно будет открывать проекты в нужной программе.' }));
+      }
+      box.hidden = false;
+    }).catch(() => {});
+    return box;
+  }
+
   _openers(info) {
     const row = h('div', { class: 'pj-open' });
     row.append(h('span', { class: 'pj-open-hint', text: 'Открыть в программе' }));

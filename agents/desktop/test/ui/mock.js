@@ -102,16 +102,32 @@
           local: { version: '0.4.11' }, offered: { version: '0.4.12', build: 'f'.repeat(64) }, autoUpdate: true,
           why: 'SYSAI даёт 0.4.12, на компьютере 0.4.11', log: [] }),
       now: async () => ({ asking: true }),
+      // «что с обновлением сейчас»: стенд делает вид, что синхронизатор уже раскладывает файлы
+      status: async () => ({ running: true, asked: false, version: '0.4.11', updateTo: '0.4.12',
+        updateAt: new Date().toISOString(), desktopTo: '', error: '', errorAt: '', syncedAt: new Date().toISOString(),
+        logAt: new Date().toISOString(), log: ['2026-11-20 12:20:01 INFO скачано, ставлю 0.4.12'] }),
     },
     // «Открыть в программе»: в стенде все четыре формата уже «есть», чтобы кнопки было видно
     apps: {
       detect: async () => [
-        { id: 'oni', title: 'ONI Visual Studio', kind: 'hmi', open: 'file', file: PROJECT + '/hmi' },
-        { id: 'easybuilder', title: 'EasyBuilder Pro', kind: 'hmi', open: 'file', file: PROJECT + '/hmi/Line.cmtp' },
-        { id: 'me', title: 'EcoStruxure Machine Expert', kind: 'plc', open: 'file', file: PROJECT + '/plc/Elevator.project' },
-        { id: 'hawell', title: 'Haiwell Happy', kind: 'plc', open: 'paste', file: PROJECT + '/hawell/program.il' },
+        { id: 'oni', title: 'ONI Visual Studio', kind: 'hmi', open: 'file', file: PROJECT + '/hmi', vendor: 'ONI (Flexem)', serves: 'панели ONI/Flexem — экраны и мнемосхемы' },
+        { id: 'easybuilder', title: 'EasyBuilder Pro', kind: 'hmi', open: 'file', file: PROJECT + '/hmi/Line.cmtp', vendor: 'Weintek', serves: 'панели cMT/eMT — экраны и мнемосхемы' },
+        { id: 'me', title: 'EcoStruxure Machine Expert', kind: 'plc', open: 'file', file: PROJECT + '/plc/Elevator.project', vendor: 'Schneider Electric', serves: 'контроллеры M2xx/M5xx (TM241, TM251, TM262…)' },
+        { id: 'hawell', title: 'Haiwell Happy', kind: 'plc', open: 'paste', file: PROJECT + '/hawell/program.il', vendor: 'Haiwell', serves: 'контроллеры Haiwell — программа списком инструкций' },
       ],
       open: async (id) => ({ id, exe: '', file: '', clipboard: id === 'hawell', auto: false, len: 900 }),
+      // «где и что будет»: в стенде железо проекта — M241 и панель cMT3072X
+      plan: async () => {
+        const openers = await window.sysai.apps.detect();
+        const side = (kind, fact) => {
+          const list = openers.filter((o) => o.kind === kind);
+          const want = kind === 'hmi' ? (/c?mt|weintek/i.test(fact) ? 'easybuilder' : 'oni') : (/haiwell/i.test(fact) ? 'hawell' : 'me');
+          const hit = list.find((o) => o.id === want) || list[0] || {};
+          return { what: kind === 'plc' ? 'ПЛК' : 'Экраны', fact, program: hit.title || '', vendor: hit.vendor || '',
+            serves: hit.serves || '', file: hit.file || '', ready: Boolean(hit.title) };
+        };
+        return { openers, environment: { plc: side('plc', 'TM241CE40R'), hmi: side('hmi', 'cMT3072X'), resolution: '1024×600', link: 'opcua' } };
+      },
     },
     dialog: { files: async () => [] }, conv: { export: async () => '' }, clipboard: { write: async () => {} },
     storage: { list: async () => ({ items: [] }), fetch: async () => '', upload: async () => ({}) },
@@ -145,6 +161,11 @@
   localStorage.setItem('sysai.project', 'Элеватор Благовещенск');
   localStorage.removeItem('sysai.pane.open');
   if (scene === 'work') addEventListener('load', () => setTimeout(() => document.getElementById('nav-projects').click(), 200));
+  // ?scene=job&upd=1 — нажать «Установить» и посмотреть полосу обновления
+  if (scene === 'job') addEventListener('load', () => setTimeout(() => {
+    const b = [...document.querySelectorAll('.upd-bar .btn')].find((x) => /Установить/.test(x.textContent || ''));
+    if (b) b.click();
+  }, 900));
   if (scene === 'format') {   // «в каком формате сохранить» — варианты с маленькими лого
     setTimeout(() => emit('acp:request', { id: 9001, method: 'elicitation/create', params: {
       sessionId: 's-work',

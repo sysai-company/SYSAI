@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('sysai', {
   // и положить туда результат (у Haiwell — программой в буфер обмена).
   apps: {
     detect: (dir) => call('apps:detect', dir),
+    plan: (dir, facts) => call('apps:plan', dir, facts || {}),
     open: (id, file) => call('apps:open', id, file),
   },
   dialog: { files: (opts) => call('dialog:files', opts || {}) },
@@ -68,6 +69,7 @@ contextBridge.exposeInMainWorld('sysai', {
   updates: {
     check: () => call('update:check'),
     now: () => call('update:now'),
+    status: () => call('update:status'),
   },
   conv: { export: (data) => call('conv:export', data) },
   clipboard: { write: (text) => call('clipboard:text', String(text ?? '')) },
