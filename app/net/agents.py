@@ -315,8 +315,13 @@ def heartbeat(ctx: AgentCtx, data: dict) -> dict:
             row.applied_at = stamp
         s.commit()
     from . import installer
+    from . import desktop as window
+    offer = access.synchronizer_offer()
+    # The offers ride in every pulse, not only in the hourly full synchronization: a new build reaches a computer in
+    # one pulse (5 minutes), which is what «мгновенно прилетело» means in practice — no socket, no extra connection.
     return {"ok": True, "access_rev": access.document(ctx.agent_id)["rev"], "hub_rev": hub.manifest(ctx)["rev"],
             "sync_version": installer.version(), "update_rev": int(agent.update_rev or 0),
+            "synchronizer": offer, "desktop": window.offer(offer["auto_update"]),
             "server_time": now().isoformat(timespec="seconds")}
 
 

@@ -255,6 +255,15 @@ def pulse(home: Path, client: Client, state: dict, error: str | None = None) -> 
             "hub": hubsync.summary(state), "error": state.get("error", "") if error is None else error}
     answer = client.json("POST", "/agents/api/heartbeat", data)
     state["pulse_at"] = now()
+    # The offers come with every pulse, so a new build is seen within one pulse instead of the hourly full
+    # synchronization: the loop decides to install on every cycle (update.due), it only lacked a fresh offer.
+    if isinstance(answer, dict):
+        got = update.offer({"synchronizer": answer.get("synchronizer") or {}})
+        if got:
+            state["offer"] = got
+        win = answer.get("desktop")
+        if isinstance(win, dict) and win.get("sha256"):
+            state["desktop_offer"] = win
     # «Обновить сейчас» из SYSAI: a new revision means update at once, not after update.RETRY
     forced = int(answer.get("update_rev") or 0) if isinstance(answer, dict) else 0
     if forced and forced != int(state.get("update_rev") or 0):

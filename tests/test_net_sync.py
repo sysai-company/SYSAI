@@ -929,3 +929,28 @@ def test_update_now_asks_the_running_loop(pc, capsys):
     assert cli.main(["--home", str(pc["home"]), "update", "--now"]) == 0
     assert (pc["home"] / "wake").exists()
     assert "проверяет и ставит сейчас" in capsys.readouterr().out
+
+
+def test_a_new_build_comes_with_the_pulse_not_only_with_the_hourly_sync(pc, monkeypatch):
+    """Новая сборка должна находиться за один пульс (5 минут), а не за часовую полную синхронизацию: предложение
+    едет в ответе на пульс, и решение об установке принимается каждый цикл."""
+    core.sync_once(pc["home"], transport=pc["send"])
+    asked = []
+    monkeypatch.setattr(core, "self_update",
+                        lambda home, client, got, state: (asked.append(got), False)[1])
+    newer = {"version": "9.9.9", "sha256": "a" * 64, "build": "b" * 64, "auto_update": True}
+    pulses = []
+
+    def send(method, url, headers, body, timeout):
+        status, head, raw = pc["send"](method, url, headers, body, timeout)
+        if url.endswith("/agents/api/heartbeat"):  # SYSAI выпустил новую сборку: она уже в ответе на пульс
+            answer = json.loads(raw)
+            answer["synchronizer"] = dict(newer)
+            raw = json.dumps(answer).encode()
+            pulses.append(1)
+        return status, head, raw
+
+    core.run(pc["home"], every=1, transport=send, cycles=2, sleep=lambda s: None)
+    assert pulses, "цикл без изменений обязан пульсовать"
+    assert asked, "новая сборка не дошла пульсом — компьютер ждал бы полной синхронизации до часа"
+    assert asked[0]["version"] == "9.9.9"
