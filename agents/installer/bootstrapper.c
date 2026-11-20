@@ -60,11 +60,15 @@ static HFONT g_f_brand, g_f_head, g_f_body, g_f_small, g_f_btn;
 static enum { ST_IDLE, ST_RUN, ST_DONE, ST_FAIL } g_state = ST_IDLE;
 static wchar_t g_status[512];
 static wchar_t g_detail[512];
+/* последние шаги установщика: что уже сделано (с галочкой) и что идёт сейчас — список вместо одной строки */
+#define STEP_ROWS 5
+static wchar_t g_steps[STEP_ROWS][112];
+static int g_steps_n;
 static float g_phase;
 static HANDLE g_proc;
 
 #define W_WIDTH 620
-#define W_HEIGHT 420
+#define W_HEIGHT 476
 #define BTN_X 28
 #define BTN_Y (W_HEIGHT - 68)
 #define BTN_W 190
@@ -194,18 +198,29 @@ static DWORD WINAPI reader_thread(LPVOID arg)
         buf[used] = 0;
         for (;;) {
             char *nl = strchr(start, '\n');
-            char *cr;
             char *line;
             if (!nl) break;
             *nl = 0;
             line = start;
             while (*line == ' ' || *line == '\t') line++;
             if (strncmp(line, "SYSAI: ", 7) == 0) {
-                wchar_t w[512];
-                cr = strchr(line, '\r');
+                char *msg = line + 7;
+                char *cr = strchr(msg, '\r');
+                int i;
                 if (cr) *cr = 0;
-                to_wide(line + 7, w, 512);
-                set_status(w, NULL);
+                /* установщик нумерует шаги «[3] ставлю синхронизатор…» — номер в окне не показываем */
+                if (msg[0] == '[') {
+                    char *close = strchr(msg, ']');
+                    if (close) {
+                        msg = close + 1;
+                        while (*msg == ' ') msg++;
+                    }
+                }
+                if (!msg[0]) continue;
+                for (i = 1; i < STEP_ROWS; i++) memcpy(g_steps[i - 1], g_steps[i], sizeof(g_steps[i]));
+                to_wide(msg, g_steps[STEP_ROWS - 1], 112);
+                if (g_steps_n < STEP_ROWS) g_steps_n++;
+                set_status(L"Идёт установка", NULL);
             }
             start = nl + 1;
         }
@@ -239,6 +254,8 @@ static void start_install(void)
 
     g_state = ST_RUN;
     g_phase = 0;
+    g_steps_n = 0;
+    ZeroMemory(g_steps, sizeof(g_steps));
     set_status(L"Начинаю установку…", L"Закрывать окно не нужно: это займёт несколько минут.");
 
     swprintf(cmd, MAX_CMD,
@@ -342,15 +359,24 @@ static void paint(HDC target)
     }
 
     /* карточка с ходом работы */
-    round_fill(dc, bx, 88, W_WIDTH - bx * 2, 212, 16, C_CARD, C_LINE);
+    round_fill(dc, bx, 88, W_WIDTH - bx * 2, 264, 16, C_CARD, C_LINE);
+    {   /* верхняя кромка светлее — карточка отделяется от фона, как стекло на свету */
+        HPEN pen = CreatePen(PS_SOLID, 1, C_LINE2);
+        HGDIOBJ op = SelectObject(dc, pen);
+        MoveToEx(dc, bx + 18, 89, NULL);
+        LineTo(dc, W_WIDTH - bx - 18, 89);
+        SelectObject(dc, op);
+        DeleteObject(pen);
+    }
     text_at(dc, L"Агент SYSAI на этом компьютере", bx + 22, 104, W_WIDTH - bx * 2 - 44, 26, g_f_head, C_TEXT,
             DT_LEFT | DT_SINGLELINE);
-    text_at(dc, g_status, bx + 22, 138, W_WIDTH - bx * 2 - 44, 26, g_f_body, C_SOFT,
+    text_at(dc, g_status, bx + 22, 136, W_WIDTH - bx * 2 - 44, 24, g_f_body, C_SOFT,
             DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
 
-    /* полоса: пока идёт установка — мягкое дыхание, иначе честно заполнена или пуста */
+    /* полоса: пока идёт установка — мягкое дыхание (длительность неизвестна, врать процентом нельзя),
+       готово — заполнена целиком */
     {
-        int px = bx + 22, py = 174, pw = W_WIDTH - bx * 2 - 44, ph = 6;
+        int px = bx + 22, py = 168, pw = W_WIDTH - bx * 2 - 44, ph = 6;
         round_fill(dc, px, py, pw, ph, 6, C_BG, C_LINE);
         if (g_state == ST_RUN) {
             int seg = pw / 3;
@@ -364,13 +390,42 @@ static void paint(HDC target)
             round_fill(dc, px, py, pw, ph, 6, C_CLAY, C_CLAY);
         }
     }
-    if (g_edit) {
-        text_at(dc, L"Код подключения", bx + 22, 190, 200, 16, g_f_small, C_MUTED, DT_LEFT | DT_SINGLELINE);
-        text_at(dc, g_detail, bx + 22, 240, W_WIDTH - bx * 2 - 44, 48, g_f_small, C_MUTED,
-                DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL);
+
+    /* шаги установки списком: сделанные — с галочкой, последний — с точкой. Так видно, что уже позади,
+       а не только то, что делается прямо сейчас. */
+    if (g_steps_n > 0) {
+        int i, y = 194;
+        for (i = 0; i < g_steps_n; i++) {
+            int last = (i == g_steps_n - 1);
+            int live = last && g_state == ST_RUN;
+            COLORREF ink = live ? C_TEXT : C_MUTED;
+            if (live) {   /* точка «сейчас» */
+                HBRUSH br = CreateSolidBrush(C_CLAY);
+                HGDIOBJ ob = SelectObject(dc, br);
+                HGDIOBJ op = SelectObject(dc, GetStockObject(NULL_PEN));
+                Ellipse(dc, bx + 24, y + 7, bx + 32, y + 15);
+                SelectObject(dc, ob);
+                SelectObject(dc, op);
+                DeleteObject(br);
+            } else {      /* галочка «сделано» (и у прошлых установок, если шаг остался с прошлого раза) */
+                HPEN pen = CreatePen(PS_SOLID, 2, C_CLAY);
+                HGDIOBJ op = SelectObject(dc, pen);
+                MoveToEx(dc, bx + 25, y + 11, NULL);
+                LineTo(dc, bx + 28, y + 14);
+                LineTo(dc, bx + 33, y + 6);
+                SelectObject(dc, op);
+                DeleteObject(pen);
+            }
+            text_at(dc, g_steps[i], bx + 42, y, W_WIDTH - bx * 2 - 66, 22, g_f_small, ink,
+                    DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+            y += 26;
+        }
     } else {
-        text_at(dc, g_detail, bx + 22, 194, W_WIDTH - bx * 2 - 44, 96, g_f_small, C_MUTED,
+        text_at(dc, g_detail, bx + 22, 194, W_WIDTH - bx * 2 - 44, 120, g_f_small, C_MUTED,
                 DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL);
+    }
+    if (g_edit) {
+        text_at(dc, L"Код подключения", bx + 22, 300, 200, 16, g_f_small, C_MUTED, DT_LEFT | DT_SINGLELINE);
     }
 
     /* кнопка — нарисована здесь же: отдельный контрол поверх полотна мигал бы и спорил за цвет */
@@ -533,7 +588,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show)
 
     if (!g_code[0]) {
         g_edit = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                                 BTN_X + 22, 208, 300, 26, g_hwnd, NULL, inst, NULL);
+                                 BTN_X + 22, 318, 320, 26, g_hwnd, NULL, inst, NULL);
         if (g_edit) SendMessageW(g_edit, WM_SETFONT, (WPARAM)g_f_body, TRUE);
     }
 

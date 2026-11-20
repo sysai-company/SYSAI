@@ -103,3 +103,21 @@ def test_what_the_pack_lacks_is_named_so_the_agent_draws_only_that(client):
     full = pictures.missing(rights, "нория", ["off", "on", "alarm"])
     assert full["missing"] == [] and full["complete"] is True
     assert pictures.missing(rights, "дробилка", ["on"])["missing"] == ["on"]
+
+
+def test_the_picture_pack_is_a_view_of_the_storage_not_a_menu_item_of_its_own(client, net_on):
+    """Пак картинок — это файлы в Хранилище, а не отдельный раздел: в меню один пункт, внутри две вкладки.
+
+    Так инженер кладёт пак туда же, куда всё остальное, и агент берёт картинки из хранилища — а не из второго
+    места, о котором надо помнить отдельно.
+    """
+    page = client.get('/pictures').text
+    assert '<nav class="nx-tabs"' in page, "у хранилища должна быть полоса вкладок"
+    assert '<a class="nx-tab on" href="/pictures"' in page, "на странице картинок открыта её вкладка"
+    assert '<a class="nx-tab" href="/files">' in page
+    assert '<a class="nav on" href="/files"' in page, "«Хранилище» в меню отмечено открытым"
+    assert '<a class="nav" href="/pictures"' not in page, "отдельного пункта «Картинки» быть не должно"
+
+    files_page = client.get('/files').text
+    assert '<a class="nx-tab on" href="/files"' in files_page
+    assert '<a class="nx-tab" href="/pictures">' in files_page, "с хранилища видно, что есть пак картинок"

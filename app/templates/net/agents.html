@@ -1,4 +1,4 @@
-{% extends "base.html" %}{% block title %}{{ 'Агенты' if boss else 'Мой агент' }} — SYSAI{% endblock %}
+{% extends "base.html" %}{% from "_icons.html" import icon %}{% block title %}{{ 'Агенты' if boss else 'Мой агент' }} — SYSAI{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset('net.css') }}">{% endblock %}
 {% block body %}
 <div class="page-h"><div><h1>{{ 'Агенты' if boss else 'Мой агент' }}</h1>
@@ -6,7 +6,21 @@
   <div class="actions"><a class="btn primary" href="/agents/download/SYSAI-Setup.exe">Скачать установщик (.exe)</a><a class="btn" href="/agents/spend">Расходы</a>{% if boss %}<a class="btn" href="/agents/access">Доступы</a><a class="btn" href="/hub">SYSAI_Hub</a>{% endif %}</div></div>
 {% if msg %}<div class="card note" role="status">{{ msg }}</div>{% endif %}
 {% if error %}<div class="card note warn" role="alert">{{ error }}</div>{% endif %}
-<div class="card note">Установщик — один файл <b>SYSAI-Setup.exe</b>: скачайте, запустите двойным щелчком, и агент встанет сам (ярлык «Агент SYSAI» на рабочем столе). Код подключения берётся из карточки агента и уже вложен в файл, скачанный оттуда. Нужен доступ к серверу и интернет для зависимостей.</div>
+<section class="card inst">
+  <div class="inst-head">
+    <span class="inst-tile">{{ icon('download') }}</span>
+    <div class="inst-txt"><h2>Установить агента на компьютер</h2>
+      <p>Один файл, двойной щелчок — и на рабочем столе появляется «Агент SYSAI». Консольных окон нет:
+         установщик открывает своё окно и показывает шаги.</p></div>
+    {% if agents %}<a class="btn primary" href="/agents/{{ agents[0].id }}">Открыть карточку →</a>{% endif %}
+  </div>
+  <ol class="inst-steps">
+    <li><b>Скачайте установщик</b><span>в карточке агента — код подключения уже вложен в файл</span></li>
+    <li><b>Запустите двойным щелчком</b><span>окно покажет ход работы; закрывать не нужно, это несколько минут</span></li>
+    <li><b>Готово</b><span>ярлык на рабочем столе, синхронизация включается при входе в Windows</span></li>
+  </ol>
+  <p class="inst-foot">{{ icon('shield') }} Коду подключения — 10 минут и он одноразовый. Нужен доступ к серверу и интернет для зависимостей.</p>
+</section>
 <section class="card"><h2>{{ 'Все агенты' if boss else 'Мои агенты' }} ({{ agents|length }})</h2>
   {% if not agents %}<p class="muted">Агентов пока нет. Создайте агента и подключите компьютер одноразовым кодом.</p>{% else %}
   <form method="post" action="/agents/update" id="agents-update">

@@ -16,7 +16,9 @@ $Wheel = '__SYSAI_WHEEL__'
 $Version = '__SYSAI_VERSION__'
 $SysaiHome = Join-Path $env:LOCALAPPDATA 'SYSAI'
 
-function Say([string]$Text) { Write-Host "SYSAI: $Text" -ForegroundColor Cyan }
+# Шаги нумеруются: окно установки показывает их списком с галочками, а не одной бегущей строкой.
+$script:Step = 0
+function Say([string]$Text) { $script:Step++; Write-Host ("SYSAI: [$($script:Step)] $Text") -ForegroundColor Cyan }
 function Warn([string]$Text) { Write-Host "SYSAI: $Text" -ForegroundColor Yellow }
 function Stop-Install([string]$Text) { Write-Host "SYSAI: $Text" -ForegroundColor Red; throw 'SYSAI-STOP' }
 function Test-Command([string]$Name) { [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
