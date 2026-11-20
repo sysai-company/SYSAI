@@ -17,6 +17,7 @@ const { Projects, prompts: projectPrompts, pipeline: projectPipeline, groupOf, c
 const rules = require('../lib/rules');
 const { AutoApprove, MAX_PER_HOUR } = require('../lib/autoapprove');
 const storage = require('../lib/storage');
+const apps = require('../lib/apps');
 
 const FAKE = path.join(__dirname, 'fake-hermes.js');
 const UIMCP = path.join(__dirname, '..', 'lib', 'uimcp.js');
@@ -1232,4 +1233,62 @@ test('rows of actions: MCP tools of Hermes (mcp__server__tool, the older mcp_ser
   assert.equal(describeTool({ title: 'terminal: dir' }).label, 'Команда');
   assert.ok(answeredError({ content: [{ type: 'content', content: { type: 'text', text: 'ОШИБКА (plc-kit/plc_generate): нет файла' } }] }));
   assert.ok(!answeredError({ content: [{ type: 'content', content: { type: 'text', text: 'готово' } }] }));
+});
+
+// ------------------------------------------------------------------- «Открыть в программе»: кнопки форматов
+test('apps: в папке проекта видно, что чем открывается — по одному файлу на формат', () => {
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, 'hawell'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'hawell', 'program.il'), 'LD X0\n');
+  fs.writeFileSync(path.join(dir, 'Line.cmtp'), '');
+  fs.mkdirSync(path.join(dir, 'plc'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'plc', 'Line.project'), '');
+  fs.mkdirSync(path.join(dir, 'hmi', 'HMI', 'Frame'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'hmi', 'HMI', 'Frame', 'Main.wcfg'), '');
+  // черновик агента с таким же расширением: в _work он не результат и кнопкой открываться не должен
+  fs.mkdirSync(path.join(dir, '_work'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '_work', 'Old.cmtp'), '');
+
+  const got = apps.detect(dir);
+  const byId = Object.fromEntries(got.map((a) => [a.id, a]));
+  assert.deepEqual(got.map((a) => a.id), ['oni', 'easybuilder', 'me', 'hawell']);
+  // Haiwell: файла проекта нет, поэтому открывается среда, а программа едет буфером
+  assert.equal(byId.hawell.open, 'paste');
+  assert.equal(byId.hawell.file, path.join(dir, 'hawell', 'program.il'));
+  assert.equal(byId.easybuilder.file, path.join(dir, 'Line.cmtp'));
+  assert.equal(byId.me.file, path.join(dir, 'plc', 'Line.project'));
+  // ONI открывает проект, а .wcfg лежит внутри HMI/Frame — отдаём папку, в которой есть HMI
+  assert.equal(byId.oni.file, path.join(dir, 'hmi'));
+
+  assert.deepEqual(apps.detect(tmp()), []);                       // пустая папка — ни одной кнопки
+});
+
+test('apps: где искать программу — сначала папки вендора в Program Files, EasyBuilder ещё и в корне диска', () => {
+  const env = { 'ProgramFiles(x86)': 'D:\\Apps', ProgramFiles: 'D:\\Apps64' };
+  const hh = apps.candidates('hawell', env);
+  assert.equal(hh[0], path.join('D:\\Apps', 'Haiwell', 'HaiwellHappy', 'HaiwellHappy.exe'));
+  assert.ok(hh.includes(path.join('D:\\Apps64', 'Haiwell', 'HaiwellHappy', 'HaiwellHappy.exe')));
+  const eb = apps.candidates('easybuilder', env);
+  assert.ok(eb.includes('C:\\EBpro\\EasyBuilderPro.exe'));
+  assert.ok(eb.includes(path.join('D:\\Apps', 'EBpro', 'EasyBuilderPro.exe')));
+});
+
+test('apps: Haiwell без файла — программа едет буфером, остальные форматы открываются файлом', () => {
+  const hh = apps.plan('hawell', 'C:\\p\\hawell\\program.il');
+  assert.equal(hh.kind, 'paste');
+  assert.deepEqual(hh.keys, ['F7', 'Ctrl+V', 'F9']);
+  assert.equal(apps.plan('easybuilder', 'C:\\p\\Line.cmtp').kind, 'file');
+  assert.deepEqual(apps.plan('oni', 'C:\\p\\hmi').keys, []);
+  assert.throws(() => apps.plan('me', ''), /нет файла/);
+  assert.throws(() => apps.plan('nope', 'C:\\x'), /нет такого формата/);
+});
+
+test('apps: сценарий вставки — F7 → Ctrl+V → F9, и путь с апострофом не ломает PowerShell', () => {
+  const s = apps.pasteScript("C:\\O'Brien\\HaiwellHappy.exe", { wait: 9 });
+  assert.match(s, /Start-Sleep -Seconds 9/);
+  assert.match(s, /SendWait\('\{F7\}'\)/);
+  assert.match(s, /SendWait\('\^v'\)/);
+  assert.match(s, /SendWait\('\{F9\}'\)/);
+  assert.match(s, /O''Brien/);                                    // апостроф удвоен — иначе строка закроется
+  assert.match(s, /Get-Process -Name 'HaiwellHappy'/);            // ждём окно, а не «спим и надеемся»
 });

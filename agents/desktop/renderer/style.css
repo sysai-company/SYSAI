@@ -382,6 +382,14 @@ body.resizing { cursor: col-resize; } body.resizing iframe { pointer-events: non
 .pj-acts { flex: none; display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .pj-acts .btn { flex: 1; min-width: 170px; }
 .pj-pipe { flex: none; padding: 12px 12px 10px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 9px; }
+/* «Открыть в программе»: кнопка на формат — среда вендора открывается на этом компьютере с нашим результатом */
+.pj-open { flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.pj-open-hint { flex: none; font-size: 11.5px; color: var(--faint); }
+.open-app { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 7px; border-radius: 99px; background: var(--card2); box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; color: var(--soft); transition: background .15s, box-shadow .15s, transform .15s; }
+.open-app img { width: 18px; height: 18px; border-radius: 5px; display: block; }
+.open-app:hover { background: var(--card); box-shadow: inset 0 0 0 1px var(--clay-line); color: var(--text); transform: translateY(-1px); }
+.open-app:active { transform: none; }
+@media (prefers-reduced-motion: reduce) { .open-app, .open-app:hover { transform: none; } }
 .pj-steps { display: flex; align-items: flex-start; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .pj-steps::-webkit-scrollbar { display: none; }
 .pj-step { flex: 1 0 68px; min-width: 68px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 2px 2px 0; position: relative; color: var(--faint); border-radius: var(--r-sm); }

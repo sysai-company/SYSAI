@@ -154,7 +154,7 @@ export class ProjectsView {
       h('button', { class: 'icon-btn sm', title: 'Открыть папку проекта', onclick: () => api.shell.open(info.path).catch((e) => toast(e.message, 'err')) }, icon('folderOpen', 'sm')),
       h('button', { class: 'icon-btn sm', title: 'Обновить', onclick: () => this.open(info.name) }, icon('refresh', 'sm')));
     const list = h('div', { class: 'ex-list' });
-    clear(this.el).append(bar, this._pipeline(info), this._actions(info), list);
+    clear(this.el).append(bar, this._pipeline(info), this._openers(info), this._actions(info), list);
     this._drop(list);
     if (!info.materials.length) {
       list.append(message('Материалов пока нет', 'Перетащите сюда всё, что есть по объекту: ТЗ, схемы, чертежи, таблицы '
@@ -204,6 +204,44 @@ export class ProjectsView {
     }
     if (info.truncated) list.append(message('Файлов очень много', 'Показаны первые 3000.'));
     if (scroll) list.scrollTop = scroll;
+  }
+
+  // «Открыть в программе»: кнопка на каждый формат, который уже есть в проекте. Нажатие открывает среду вендора на
+  // этом компьютере и кладёт в неё наш результат — файл проекта (ONI, EasyBuilder, Machine Expert) или, у Haiwell,
+  // программу в буфер обмена. Нет ни одного результата — строки нет вовсе, чтобы не занимать место.
+  _openers(info) {
+    const row = h('div', { class: 'pj-open' });
+    row.append(h('span', { class: 'pj-open-hint', text: 'Открыть в программе' }));
+    api.apps.detect(info.path).then((list) => {
+      if (!list || !list.length) {
+        row.remove();
+        return;
+      }
+      for (const a of list) {
+        const hint = a.open === 'paste'
+          ? 'откроется среда, программа — в буфере обмена: F7 → Ctrl+V → F9'
+          : 'проект откроется в среде';
+        row.append(h('button', {
+          class: 'open-app', title: `${a.title}\n${a.file}\n${hint}`, onclick: () => this.openIn(a),
+        }, h('img', { src: `img/format-${a.id}.svg`, alt: '' }), h('span', { text: a.title })));
+      }
+    }).catch(() => row.remove());
+    return row;
+  }
+
+  async openIn(a) {
+    try {
+      const res = await api.apps.open(a.id, a.file);
+      if (res && res.clipboard) {
+        toast(res.auto
+          ? `${a.title} открыт, вставка отправлена. Если текст не появился — F7, Ctrl+V, F9.`
+          : `${a.title} открыт, программа в буфере обмена: F7 (окно STL) → Ctrl+V → F9.`, res.auto ? 'ok' : 'update', 0);
+      } else {
+        toast(`${a.title}: проект открыт`, 'ok');
+      }
+    } catch (err) {
+      toast(err.message, 'err');
+    }
   }
 
   // The strip of stages: a step per stage (done — a tick, in work — a pulse, a problem — an alert), under it what

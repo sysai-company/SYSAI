@@ -3,6 +3,9 @@
 // the project) | chat (the conversation alone) | empty (a new conversation) | boot (Hermes does not start).
 (() => {
   const scene = new URLSearchParams(location.search).get('scene') || 'work';
+  // ?theme=light — посмотреть светлую тему на стенде: app.js читает этот ключ при загрузке
+  const theme = new URLSearchParams(location.search).get('theme');
+  if (theme) localStorage.setItem('sysai.theme', theme);
   const listeners = {};
   const on = (ch) => (fn) => { (listeners[ch] = listeners[ch] || []).push(fn); return () => {}; };
   const emit = (ch, payload) => (listeners[ch] || []).forEach((fn) => fn(payload));
@@ -56,7 +59,7 @@
 
   let gen = 0;
   window.sysai = {
-    info: async () => ({ version: '0.6.9', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
+    info: async () => ({ version: '0.7.0', electron: '33.2.0', agent: 'opo-ivanov', person: 'Иванов Пётр Сергеевич', connected: true,
       server: 'https://hostless.cloud/apps/sysai', home: 'C:\\Users\\ivanov\\SYSAI', profile: 'sysai' }),
     ready: () => {},
     acp: {
@@ -81,6 +84,16 @@
       url: async (p) => `file://${p}`, attachments: async () => ({ items: [], text: '' }), paste: async () => '',
     },
     shell: { open: async () => {}, reveal: async () => {}, run: async () => {}, external: async () => {} },
+    // «Открыть в программе»: в стенде все четыре формата уже «есть», чтобы кнопки было видно
+    apps: {
+      detect: async () => [
+        { id: 'oni', title: 'ONI Visual Studio', kind: 'hmi', open: 'file', file: PROJECT + '/hmi' },
+        { id: 'easybuilder', title: 'EasyBuilder Pro', kind: 'hmi', open: 'file', file: PROJECT + '/hmi/Line.cmtp' },
+        { id: 'me', title: 'EcoStruxure Machine Expert', kind: 'plc', open: 'file', file: PROJECT + '/plc/Elevator.project' },
+        { id: 'hawell', title: 'Haiwell Happy', kind: 'plc', open: 'paste', file: PROJECT + '/hawell/program.il' },
+      ],
+      open: async (id) => ({ id, exe: '', file: '', clipboard: id === 'hawell', auto: false, len: 900 }),
+    },
     dialog: { files: async () => [] }, conv: { export: async () => '' }, clipboard: { write: async () => {} },
     storage: { list: async () => ({ items: [] }), fetch: async () => '', upload: async () => ({}) },
     projects: {

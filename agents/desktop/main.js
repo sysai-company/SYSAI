@@ -25,6 +25,7 @@ const shortcuts = require('./lib/shortcuts');
 const { Bridge } = require('./lib/bridge');
 const rules = require('./lib/rules');
 const { AutoApprove } = require('./lib/autoapprove');
+const apps = require('./lib/apps');
 const pkg = require('./package.json');
 
 const VERSION = pkg.version;
@@ -552,6 +553,80 @@ async function openInEasyBuilder(file) {
   return start(res.filePaths[0]);
 }
 
+// --------------------------------------------------------------------------- «Открыть в программе»: все форматы
+// Кнопки с иконками форматов (панель проекта) открывают среду вендора на этом компьютере и сразу кладут в неё наш
+// результат. Файл проекта (ONI, EasyBuilder, Machine Expert) отдаём среде файлом — она его подхватит сама.
+// У Haiwell Happy файла нет (закрытый .gpc), поэтому программа едет буфером обмена, а в окне остаются три клавиши.
+async function appExe(id) {
+  const f = apps.format(id);
+  const keep = path.join(DESK, `${id}.json`);
+  const saved = (config.readJson(keep) || {}).exe;
+  if (saved && fs.existsSync(saved)) return saved;
+  const found = apps.candidates(id).find((p) => fs.existsSync(p));
+  if (found) return found;
+  const res = await dialog.showOpenDialog(win, {
+    title: `Где ${f.title}? Укажите ${f.exe[0]}`, properties: ['openFile'],
+    filters: [{ name: 'Программа', extensions: ['exe'] }],
+  });
+  if (res.canceled || !res.filePaths.length) throw new Error(`${f.title} не найден на этом компьютере`);
+  config.writeJson(keep, { ...(config.readJson(keep) || {}), exe: res.filePaths[0] });
+  return res.filePaths[0];
+}
+
+function startApp(exe, args) {
+  const child = spawn(exe, args, { cwd: path.dirname(exe), detached: true, stdio: 'ignore', windowsHide: false });
+  child.on('error', (err) => log(`${path.basename(exe)}:`, err.message));
+  child.unref();
+}
+
+// Haiwell Happy: программы-файла не существует, поэтому текст едет буфером, а вставку делает человек (F7 → Ctrl+V
+// → F9) или, если в desktop/hawell.json включён autoPaste, — сценарий SendKeys. По умолчанию выключено: SendKeys
+// бьёт по тому окну, что на переднем плане, и на чужой машине это лотерея.
+async function pasteIntoApp(id, file) {
+  const f = apps.format(id);
+  const text = fs.readFileSync(file, 'utf8');
+  clipboard.writeText(text);
+  const cfg = config.readJson(path.join(DESK, `${id}.json`)) || {};
+  const exe = await appExe(id);
+  if (cfg.autoPaste && WIN) {
+    const script = path.join(DESK, 'cache', `${id}-paste.ps1`);
+    fs.mkdirSync(path.dirname(script), { recursive: true });
+    fs.writeFileSync(script, apps.pasteScript(exe, { wait: cfg.wait || 6 }), 'utf8');
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script],
+      { cwd: path.dirname(script), detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', (err) => log('вставка в Haiwell:', err.message));
+    child.unref();
+    log(`${f.title}: открыт, вставка отправлена (${script})`);
+    return { id, exe, file, clipboard: true, auto: true, len: text.length };
+  }
+  startApp(exe, []);
+  log(`${f.title}: ${text.length} симв. в буфере, среда открыта`);
+  return { id, exe, file, clipboard: true, auto: false, len: text.length };
+}
+
+async function openInApp(id, file) {
+  const f = apps.format(id);
+  if (typeof file !== 'string' || !file.trim()) throw new Error(`не указан файл для ${f.title}`);
+  const p = path.resolve(file.trim());
+  if (!fs.existsSync(p)) throw new Error(`нет такого файла: ${p}`);
+  if (f.open === 'paste') return pasteIntoApp(id, p);
+  const saved = (config.readJson(path.join(DESK, `${id}.json`)) || {}).exe;
+  if (saved && fs.existsSync(saved)) {
+    startApp(saved, [p]);
+    log(`${f.title}: ${p} → ${saved}`);
+    return { id, exe: saved, file: p, clipboard: false, auto: true };
+  }
+  const viaShell = await shell.openPath(p);        // ассоциация Windows — самый короткий и самый привычный путь
+  if (!viaShell) {
+    log(`${f.title}: ${p} открыт по ассоциации`);
+    return { id, exe: '', file: p, clipboard: false, auto: true };
+  }
+  log(`${f.title} по ассоциации не вышло:`, viaShell);
+  const exe = await appExe(id);
+  startApp(exe, [p]);
+  return { id, exe, file: p, clipboard: false, auto: true };
+}
+
 // ------------------------------------------------------------------------------------------------- the bridge
 // What the agent asks of the window (lib/uimcp.js): checked by the signed rules as the synchronizer checks them —
 // showing needs reading, opening also stays out of SYSAI's places, a program needs «Команды на ПК».
@@ -840,6 +915,8 @@ function ipc() {
   handle('canvas:reload', () => canvas.reload());
   handle('canvas:close', () => canvas.close());
   handle('canvas:eb', () => openInEasyBuilder(canvas.file));
+  handle('apps:detect', (dir) => apps.detect(need(dir)));
+  handle('apps:open', (id, file) => openInApp(String(id || ''), file));
   ipcMain.on('canvas:pointer', (event, p) => {
     if (win && event.sender === win.webContents && p && typeof p === 'object') canvas.pointer(p);
   });

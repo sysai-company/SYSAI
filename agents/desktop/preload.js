@@ -56,6 +56,12 @@ contextBridge.exposeInMainWorld('sysai', {
     run: (path) => call('shell:run', path),
     external: (url) => call('shell:external', url),
   },
+  // «Открыть в программе»: detect — что в папке проекта есть (по файлу на формат), open — открыть среду вендора
+  // и положить туда результат (у Haiwell — программой в буфер обмена).
+  apps: {
+    detect: (dir) => call('apps:detect', dir),
+    open: (id, file) => call('apps:open', id, file),
+  },
   dialog: { files: (opts) => call('dialog:files', opts || {}) },
   conv: { export: (data) => call('conv:export', data) },
   clipboard: { write: (text) => call('clipboard:text', String(text ?? '')) },

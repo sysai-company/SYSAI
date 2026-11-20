@@ -19,8 +19,12 @@
   версии, подписанной SYSAI, ставит и обновляет окно агента (`sysai-agent desktop`). Подробно —
   [sync/README.md](sync/README.md).
 - `desktop/` — окно «Агент SYSAI» (Electron): разговор с агентом с видимыми действиями, просмотр файлов, проводник
-  ПК и Хранилище SYSAI; агент показывает в нём файлы и открывает программы в пределах доступов. Подробно —
-  [desktop/README.md](desktop/README.md).
+  ПК и Хранилище SYSAI; агент показывает в нём файлы и открывает программы в пределах доступов. На панели проекта —
+  кнопки «Открыть в программе» (`lib/apps.js`): ONI Visual Studio, EasyBuilder Pro, Machine Expert, Haiwell Happy.
+  Первые три открывают файл проекта в своей среде. У Haiwell файла нет (закрытый `.gpc`), поэтому кнопка открывает
+  среду и кладёт программу в буфер обмена: F7 (окно STL) → Ctrl+V → F9; `autoPaste` в `desktop/hawell.json` велит
+  отправить эти клавиши самим (по умолчанию выключено — SendKeys бьёт по тому окну, что на переднем плане).
+  Подробно — [desktop/README.md](desktop/README.md).
 
 Инструменты хаба для проекта «под ключ» (`hub/seed/`, [docs/opo/NEW_PROJECT.md](../docs/opo/NEW_PROJECT.md)):
 `plc-kit` (программа на ST, файл `.project`, связь, этапы), `machine-expert` (компиляция, контроллер),
