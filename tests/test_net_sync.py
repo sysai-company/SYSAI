@@ -839,3 +839,32 @@ def test_a_tool_started_while_the_synchronizer_is_in_mid_work_waits_instead_of_g
     assert mcpwrap.serve("wait-kit", pc["home"], stdin=io.BytesIO(b""), stdout=io.BytesIO()) != 2
     assert reads["n"] >= 4 and seen                                   # it was started after the file came back
     assert mcpwrap.serve("нет-такого", pc["home"], stdin=io.BytesIO(b""), stdout=io.BytesIO()) == 2   # really absent: still refused
+
+
+def test_update_report_says_where_the_update_is_stuck(pc, monkeypatch):
+    """«Обнова не прилетела» — один ответ на три разных причины: ждать, переустанавливать или это SYSAI отдаёт старое."""
+    info = core.update_report(pc["home"], transport=pc["send"])
+    assert not info["error"]
+    assert info["version"] == SYNC_VERSION
+    assert info["offer"]["version"] == installer.version()            # SYSAI отдаёт то, что лежит в репозитории
+    assert info["offer"]["build"] == info["build"]                    # свои же исходники — та же сборка
+    assert info["behind"] is False and info["due"] is False            # ставить нечего, и это сказано прямо
+    assert info["auto_update"] is True
+
+    # Тот самый случай, из-за которого обновление не прилетало: номер версии не подняли, а исходники другие.
+    monkeypatch.setattr(update, "local_build", lambda: "0" * 64)
+    other = core.update_report(pc["home"], transport=pc["send"])
+    assert other["behind"] is True and other["due"] is True
+    assert other["build"] != other["offer"]["build"]
+
+
+def test_update_report_reads_like_a_sentence(capsys):
+    cli._print_update({"version": "0.4.9", "build": "a" * 64, "behind": True, "due": False, "auto_update": True,
+                       "tried": "2 ч назад", "error": "", "log": "2026-11-19T10:00:00 обновление 0.4.9 -> 0.4.10\n"
+                       "2026-11-19T10:00:20 не установился (файлы заняты: идёт задача Hermes с инструментом хаба?)",
+                       "offer": {"version": "0.4.10", "build": "b" * 64}})
+    text = capsys.readouterr().out
+    assert "Синхронизатор здесь: 0.4.9 (сборка aaaaaaaaaaaa)" in text
+    assert "SYSAI отдаёт:       0.4.10 (сборка bbbbbbbbbbbb) — новее" in text
+    assert "уже пробовали 2 ч назад" in text
+    assert "файлы заняты" in text                                      # журнал виден, а не спрятан

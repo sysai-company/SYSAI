@@ -33,6 +33,8 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--install-only", action="store_true", help="только поставить или обновить окно и ярлыки (так делает установщик)")
     d.add_argument("files", nargs="*", help="файлы — сразу показать в окне")
     sub.add_parser("version", help="версия")
+    u = sub.add_parser("update", help="почему обновление не пришло: что стоит здесь, что отдаёт SYSAI")
+    u.add_argument("--json", action="store_true", help="в JSON (для разбора)")
     return p
 
 
@@ -70,6 +72,13 @@ def main(argv=None) -> int:
         return 0 if info["connected"] else 1
     core.setup_logging(home, console=True)
     try:
+        if args.cmd == "update":
+            info = core.update_report(home)
+            if args.json:
+                print(json.dumps(info, ensure_ascii=False, indent=2))
+            else:
+                _print_update(info)
+            return 1 if info["error"] else 0
         if args.cmd == "connect":
             code = args.code or os.environ.get("SYSAI_CODE", "")
             if not code and sys.stdin and sys.stdin.isatty():
@@ -117,6 +126,36 @@ def main_windowless() -> int:
     except Exception as exc:  # noqa: BLE001  the background loop must leave a trace, not a dialog
         core.log.exception("Синхронизатор остановился: %s", exc)
         return 1
+
+
+def _print_update(info: dict) -> None:
+    short = lambda b: (b or "—")[:12]
+    print(f"Синхронизатор здесь: {info['version']} (сборка {short(info['build'])})")
+    got = info.get("offer") or {}
+    if not got and not info.get("error"):
+        print("SYSAI не называет обновления в подписанных настройках — обновлять нечего (или сервер старее этой "
+              "возможности: тогда переустановка поставит то же самое).")
+    elif got:
+        mark = "новее" if info["behind"] else "та же"
+        print(f"SYSAI отдаёт:       {got.get('version')} (сборка {short(got.get('build')) or '— без сборки'}) — {mark}")
+        print("Обновление само:    " + ("выключено в настройках сети (Доступы → сеть)" if info["auto_update"] is False
+                                        else "включено"))
+        if info["behind"]:
+            if info["due"]:
+                print("Что дальше:         ждёт установки — запустите «sysai-agent sync» (окно обновления погасится само)")
+            elif info["tried"]:
+                print(f"Что дальше:         уже пробовали {info['tried']} — повтор через 6 ч, либо «Обновить сейчас» "
+                      "на странице агентов в SYSAI")
+            else:
+                print("Что дальше:         попытки ещё не было — «Обновить сейчас» на странице агентов в SYSAI")
+        else:
+            print("Что дальше:         ставить нечего: здесь та же версия и та же сборка, что отдаёт SYSAI")
+    if info.get("error"):
+        print(f"Ошибка: {info['error']}")
+    if info.get("log"):
+        print("Журнал обновлений (logs\\update.log, последние строки):")
+        for line in info["log"].splitlines():
+            print("  " + line)
 
 
 def _print_status(info: dict) -> None:

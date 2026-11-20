@@ -399,6 +399,62 @@ def describe(report: dict) -> str:
     return "; ".join(parts) or "без изменений"
 
 
+def _tail(path: Path, lines: int = 8) -> str:
+    """Последние строки файла — для отчёта: журнал обновления одним куском, без исключений на отсутствующем файле."""
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace").strip().splitlines()
+    except OSError:
+        return ""
+    return "\n".join(text[-lines:])
+
+
+def update_report(home: Path | None = None, transport=None) -> dict:
+    """«Почему обновление не пришло»: что стоит здесь, что отдаёт SYSAI, чего не хватает до установки.
+
+    Ничего не меняет: спрашивает подписанный документ, сравнивает версию и сборку, показывает прошлую попытку и
+    хвост журнала. По этому видно одно из трёх — ждать, переустанавливать или это SYSAI отдаёт старое.
+    """
+    home = Path(home or paths.home())
+    cfg = fsutil.read_json(home / "agent.json", {}) or {}
+    state = fsutil.read_json(home / "state.json", {}) or {}
+    out = {"home": str(home), "version": __version__, "build": update.local_build(), "offer": {}, "behind": False,
+           "due": None, "auto_update": None, "tried": "", "server": cfg.get("server", ""), "error": "",
+           "log": _tail(home / "logs" / "update.log")}
+    tried = float(state.get("update_at") or 0)
+    if tried:
+        out["tried"] = now_from(tried)
+    if not cfg.get("agent"):
+        out["error"] = "компьютер не подключён к SYSAI"
+        return out
+    # Запомненное в access.json — то, по чему компьютер жил до сих пор; свежий ответ важнее, но и он под проверкой.
+    got = update.offer((fsutil.read_json(home / "access.json", {}) or {}).get("doc") or {})
+    try:
+        client, _ = client_for(home, cfg, transport)
+        signed = client.json("GET", "/agents/api/config")
+        if not signing.verify(signed, cfg.get("public_key", ""), cfg.get("key_id", "")):
+            out["error"] = "подпись настроек не сходится: этому ответу компьютер ничего не поверит"
+        else:
+            got = update.offer(signed.get("doc") or {})
+    except (ApiError, OSError) as exc:
+        out["error"] = f"SYSAI не ответил: {exc} — показано то, что запомнено в access.json"
+    out["offer"] = got
+    out["auto_update"] = bool(got.get("auto_update")) if got else None
+    out["behind"] = update.behind(got) if got else False
+    # «пошло бы сейчас» считаем по свежему предложению, а не по тому, что запомнено в state.json: иначе отчёт
+    # повторяет прошлую синхронизацию и врёт про сегодняшний ответ SYSAI
+    out["due"] = bool(update.due({**state, "offer": got})) if got else False
+    return out
+
+
+def now_from(stamp: float) -> str:
+    """Когда это было, по-человечески: «2 ч назад» — в отчётах вместо секунд с эпохи."""
+    delta = max(0.0, time.time() - float(stamp))
+    for size, name in ((86400, "дн"), (3600, "ч"), (60, "мин")):
+        if delta >= size:
+            return f"{int(delta // size)} {name} назад"
+    return f"{int(delta)} с назад"
+
+
 def status(home: Path | None = None) -> dict:
     home = Path(home or paths.home())
     cfg = fsutil.read_json(home / "agent.json", {}) or {}
