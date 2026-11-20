@@ -868,3 +868,13 @@ def test_update_report_reads_like_a_sentence(capsys):
     assert "SYSAI отдаёт:       0.4.10 (сборка bbbbbbbbbbbb) — новее" in text
     assert "уже пробовали 2 ч назад" in text
     assert "файлы заняты" in text                                      # журнал виден, а не спрятан
+
+
+def test_a_new_build_of_the_synchronizer_is_a_new_revision(pc, monkeypatch):
+    """«Есть обновление» должно загораться и тогда, когда подняли только сборку: иначе rev смотрит лишь на номер, и
+    компьютер с той же версией не видит повода пересинхронизироваться (та же ошибка, что и в самом обновлении)."""
+    before = access.document(pc["agent_id"])["rev"]
+    monkeypatch.setattr(installer, "build", lambda: "f" * 64)
+    after = access.document(pc["agent_id"])
+    assert after["doc"]["synchronizer"]["build"] == "f" * 64
+    assert after["rev"] != before

@@ -787,7 +787,7 @@ def document(agent_id: int, server: str = "", session=None) -> dict:
         rev = hashlib.sha256(_canonical({"agent": agent.name, "harness": agent.harness, "rules": rules,
                                          "tools": [(t["name"], t["version"]) for t in tools], "cache": cache,
                                          "soul": soul.digest(character),
-                                         "sync": [offer["version"], offer["auto_update"]],
+                                         "sync": [offer["version"], offer["build"], offer["auto_update"]],
                                          "desktop": [window["sha256"], window["electron"]["sha256"]],
                                          "person": person})).hexdigest()[:12]
         server = (server or config.PUBLIC_URL or "").rstrip("/")
