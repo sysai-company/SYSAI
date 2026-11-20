@@ -33,28 +33,60 @@ def newer(candidate: str, current: str = __version__) -> bool:
     return bool(_parts(candidate)) and _parts(candidate) > _parts(current)
 
 
+_local: dict = {}
+
+
+def local_build() -> str:
+    """The build of this copy: sha256 of its own sources, counted exactly as SYSAI counts the one it gives out
+    (app/net/installer._key). Two builds of one version number differ here — that is how a computer notices a new
+    one even when the version was not bumped."""
+    if "build" not in _local:
+        root = Path(__file__).resolve().parent
+        files = sorted(((p.relative_to(root.parent).as_posix(), p.read_bytes()) for p in root.rglob("*.py")
+                        if "__pycache__" not in p.parts), key=lambda kv: kv[0])
+        _local["build"] = hashlib.sha256(b"".join(n.encode() + b"\0" + d for n, d in files)).hexdigest()
+    return _local["build"]
+
+
+def key_of(got: dict) -> str:
+    """What «уже пробовали» refers to: the version and, when SYSAI names it, the build."""
+    build = str((got or {}).get("build") or "")
+    return f"{got.get('version', '')}@{build[:12]}" if build else str(got.get("version", ""))
+
+
+def behind(got: dict) -> bool:
+    """Is the offer another build than this one: a newer version, or the same version with other sources."""
+    version = str(got.get("version") or "")
+    if newer(version):
+        return True
+    build = str(got.get("build") or "")
+    return bool(build) and _parts(version) == _parts(__version__) and build != local_build()
+
+
 def wheel_name(version: str) -> str:
     return f"sysai_agent-{version}-py3-none-any.whl"
 
 
 def offer(doc: dict) -> dict:
-    """What the signed document offers: {"version", "sha256", "auto_update"} or {}."""
+    """What the signed document offers: {"version", "sha256", "build", "auto_update"} or {}."""
     got = doc.get("synchronizer") if isinstance(doc, dict) else None
     if not isinstance(got, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(got.get("sha256") or "")):
         return {}
+    build = str(got.get("build") or "")
     return {"version": str(got.get("version") or ""), "sha256": str(got["sha256"]),
+            "build": build if re.fullmatch(r"[0-9a-f]{64}", build) else "",
             "auto_update": bool(got.get("auto_update", True))}
 
 
 def due(state: dict, now: float | None = None) -> dict:
-    """The offer to install now ({} — nothing): automatic updates on (or «обновить сейчас» from SYSAI), newer than
-    this one, not tried within RETRY."""
+    """The offer to install now ({} — nothing): automatic updates on (or «обновить сейчас» from SYSAI), another build
+    than this one — a newer version or the same version built from other sources — not tried within RETRY."""
     got = state.get("offer") if isinstance(state.get("offer"), dict) else {}
-    if not (got.get("auto_update") or state.get("update_force")) or not newer(got.get("version", "")):
+    if not (got.get("auto_update") or state.get("update_force")) or not behind(got):
         return {}
     now = time.time() if now is None else now
     tried = float(state.get("update_at") or 0)
-    if state.get("update_to") == got["version"] and tried and now - tried < RETRY:
+    if state.get("update_to") == key_of(got) and tried and now - tried < RETRY:
         return {}
     return got
 
@@ -108,7 +140,7 @@ if ($runner) {{ Start-Process -FilePath $runner.Source -ArgumentList 'run' -Wind
 """
 
 
-def start(home: Path, wheel: Path, version: str, state: dict, popen=None) -> bool:
+def start(home: Path, wheel: Path, version: str, state: dict, popen=None, build: str = "") -> bool:
     """Hands the checked wheel to the helper; True — the loop must leave now (the helper waits for it)."""
     popen = popen or subprocess.Popen
     if not paths.WINDOWS:
@@ -117,7 +149,7 @@ def start(home: Path, wheel: Path, version: str, state: dict, popen=None) -> boo
     (home / "logs").mkdir(parents=True, exist_ok=True)
     path = home / SCRIPT
     fsutil.atomic_write(path, "\ufeff" + script(home, wheel, version, os.getpid()))  # BOM: PowerShell 5.1 reads UTF-8
-    state.update(update_to=version, update_at=time.time())  # not again before RETRY, whatever the helper does
+    state.update(update_to=key_of({"version": version, "build": build}), update_at=time.time())  # not again before RETRY
     state.pop("update_force", None)  # «обновить сейчас» is spent: the next try is the usual one
     fsutil.write_json(home / "state.json", state)
     try:

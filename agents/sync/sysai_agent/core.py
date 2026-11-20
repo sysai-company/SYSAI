@@ -348,11 +348,11 @@ def self_update(home: Path, client: Client, got: dict, state: dict) -> bool:
     try:
         wheel = update.fetch(home, client, got)
     except (update.UpdateError, ApiError, OSError) as exc:
-        state.update(update_to=got["version"], update_at=time.time())  # not again before update.RETRY
+        state.update(update_to=update.key_of(got), update_at=time.time())  # not again before update.RETRY
         fsutil.write_json(home / "state.json", state)
         log.warning("Обновление синхронизатора: %s", exc)
         return False
-    if update.start(home, wheel, got["version"], state):
+    if update.start(home, wheel, got["version"], state, build=got.get("build") or ""):
         log.info("Обновляюсь до %s: синхронизатор перезапустится сам (журнал — logs\\update.log)", got["version"])
         return True
     return False

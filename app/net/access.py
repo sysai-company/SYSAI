@@ -809,11 +809,13 @@ def document(agent_id: int, server: str = "", session=None) -> dict:
 
 def synchronizer_offer() -> dict:
     """The synchronizer SYSAI gives out, in the signed document: the computer updates itself only to this wheel (its
-    sha256) and only while «обновлять сами» is on (Настройки → Сеть агентов)."""
+    sha256) and only while «обновлять сами» is on (Настройки → Сеть агентов). `build` is the sha256 of the sources:
+    the computer compares it with its own, so a new build is installed even if its version number was not bumped."""
     from .. import settings_store
     from . import installer
     _, _, sha = installer.wheel()
-    return {"version": installer.version(), "sha256": sha, "auto_update": bool(settings_store.get("agents_auto_update"))}
+    return {"version": installer.version(), "sha256": sha, "build": installer.build(),
+            "auto_update": bool(settings_store.get("agents_auto_update"))}
 
 
 def rules_for(agent_id: int) -> dict:

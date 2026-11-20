@@ -51,6 +51,49 @@ def test_the_exe_downloads_from_the_agents_page(client, net_agent):
     assert code.rstrip(b"\0") == b"7K2M-9QXA"
 
 
+def test_a_new_build_of_the_same_version_reaches_the_computers():
+    """Версию забыли поднять — компьютеры всё равно обновляются: SYSAI называет сборку, а не только номер (B9).
+
+    Так и вышло 19.11: три правки синхронизатора 0.4.9 ушли без бампа, и ни один компьютер обновление не получил:
+    номер тот же — «новее нет». Сборка считается по исходникам, поэтому другие исходники — другая сборка."""
+    state = {"offer": {"version": update.__version__, "sha256": "a" * 64,
+                       "build": "b" * 64, "auto_update": True}}
+    got = update.due(state, now=1000.0)
+    assert got and got["build"] == "b" * 64
+
+
+def test_the_build_the_computer_already_has_is_not_installed_again():
+    same = update.local_build()
+    state = {"offer": {"version": update.__version__, "sha256": "a" * 64, "build": same, "auto_update": True}}
+    assert update.due(state, now=1000.0) == {}
+    # уже пробовали эту сборку — не раньше RETRY, что бы ни делал помощник
+    other = {"version": update.__version__, "sha256": "a" * 64, "build": "c" * 64, "auto_update": True}
+    state = {"offer": other, "update_to": update.key_of(other), "update_at": 1000.0}
+    assert update.due(state, now=1001.0) == {}
+    state["offer"] = {"version": update.__version__, "sha256": "a" * 64, "build": "d" * 64, "auto_update": True}
+    assert update.due(state, now=1001.0)["build"] == "d" * 64       # другая сборка — можно сразу
+
+
+def test_the_server_and_the_computer_count_the_build_the_same_way(client, net_agent):
+    """Сборка считается одной и той же функцией с обеих сторон — иначе сравнение ничего не значит."""
+    from app.net import access as A
+    offered = A.document(net_agent["id"])["doc"]["synchronizer"]
+    assert offered["build"] == installer.build() == update.local_build()
+    assert offered["version"] == installer.version() == update.__version__
+    named, _, sha = installer.wheel()
+    assert named == f"sysai_agent-{update.__version__}-py3-none-any.whl" and sha == offered["sha256"]
+    # исходники изменились — сборка другая (так и ловится забытый бамп версии)
+    before = installer.build()
+    src = installer.SYNC / "sysai_agent" / "update.py"
+    saved = src.read_bytes()
+    try:
+        src.write_bytes(saved + "\n# правка без бампа версии\n".encode("utf-8"))
+        assert installer.build() != before
+    finally:
+        src.write_bytes(saved)
+    assert installer.build() == before
+
+
 # --------------------------------------------------------------------------------------------- «обновить сейчас»
 def test_update_all_bumps_the_revision_and_the_pulse_carries_it(client, net_agent):
     assert client.post("/agents/api/heartbeat", headers=net_agent["headers"], json={}).json()["update_rev"] == 0

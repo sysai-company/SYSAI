@@ -711,7 +711,8 @@ def test_the_synchronizer_updates_itself_only_to_the_wheel_sysai_signed(pc, monk
     assert f"uv tool install --force --python 3.12 '{wheel}'" in helper and "-ArgumentList 'run'" in helper
     assert "taskkill" not in helper and "Stop-Process" not in helper  # nothing is stopped by force
     state = json.loads((home / "state.json").read_text(encoding="utf-8"))
-    assert state["update_to"] == "9.9.9" and not (home / "run.lock").exists()
+    assert state["offer"]["version"] == "9.9.9"
+    assert state["update_to"] == update.key_of(state["offer"]) and not (home / "run.lock").exists()
     assert run() == [1] and len(started) == 1  # once: the helper is at work
     monkeypatch.setattr(paths, "WINDOWS", False)  # elsewhere the synchronizer is updated by whoever installed it
     assert core.self_update(home, None, {"version": "9.9.9"}, {}) is False

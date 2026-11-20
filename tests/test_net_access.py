@@ -261,7 +261,8 @@ def test_the_signed_document_offers_the_synchronizer_to_update_to(client, net_ag
     from app.net import installer
     doc = access.document(net_agent["id"])
     offer = doc["doc"]["synchronizer"]
-    assert offer == {"version": installer.version(), "sha256": installer.wheel()[2], "auto_update": True}
+    assert offer == {"version": installer.version(), "sha256": installer.wheel()[2], "build": installer.build(),
+                     "auto_update": True}
     settings_store.set_many({"agents_auto_update": False})
     later = access.document(net_agent["id"])
     assert later["doc"]["synchronizer"]["auto_update"] is False and later["rev"] != doc["rev"]  # the computers learn

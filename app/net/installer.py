@@ -32,8 +32,22 @@ def wheel_name() -> str:
 
 
 def _sources() -> list:
-    return [(p.relative_to(SYNC).as_posix(), p.read_bytes()) for p in sorted((SYNC / PACKAGE).rglob("*.py"))
-            if "__pycache__" not in p.parts]
+    out = [(p.relative_to(SYNC).as_posix(), p.read_bytes()) for p in (SYNC / PACKAGE).rglob("*.py")
+           if "__pycache__" not in p.parts]
+    return sorted(out, key=lambda kv: kv[0])  # by name, as the synchronizer counts its own build (update.local_build)
+
+
+def _key(sources: list) -> str:
+    """The build: sha256 of the sources. Different sources — another build, even at the same version number, so a
+    forgotten version bump can no longer leave every computer on an old build (TASKBAR B9)."""
+    return hashlib.sha256(b"".join(n.encode() + b"\0" + d for n, d in sources)).hexdigest()
+
+
+def build() -> str:
+    """The build SYSAI gives out — what the synchronizer compares its own one with. It is the key the wheel is built
+    from, so it always belongs to the bytes actually served."""
+    wheel()
+    return _cache["key"]
 
 
 def _digest(data: bytes) -> str:
@@ -69,7 +83,7 @@ def _build(sources: list) -> tuple:
 def wheel() -> tuple:
     """(file name, bytes, sha256), rebuilt only when the sources change."""
     sources = _sources()
-    key = hashlib.sha256(b"".join(n.encode() + b"\0" + d for n, d in sources)).hexdigest()
+    key = _key(sources)
     if _cache.get("key") != key:
         _cache.update(key=key, value=_build(sources))
     return _cache["value"]
