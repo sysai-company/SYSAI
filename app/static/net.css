@@ -376,13 +376,15 @@ details[open] > .ac-head { border-bottom: 1px solid var(--line); border-radius: 
 /* сдвиг нечётного ряда — полсоты (85px при соте 170): соты теперь касаются гранями, ряд стал уже прежнего
    с зазорами 12px, поэтому сдвиг держится на любой широкой странице; узкая раскладка отменяет его в своих правилах */
 .hive form { display: flex; flex-direction: column; align-items: center; gap: 3px; margin: 0; }
-/* большие соты с рамкой-кольцом: контур (::before) и лицо (::after) — тот же шестиугольник, рамка видна у каждой соты */
+/* большие соты с рамкой-кольцом: контур (::before) и лицо (::after) — тот же шестиугольник, рамка видна у каждой соты.
+   Контур остроконечный (острия сверху и снизу), как у схемы .comb-grid: при gap: 0 соседи касаются вертикальными
+   гранями, ряд поднимается на четверть высоты, нечётный ряд сдвигается на полсоты — соты действительно сцеплены. */
 .hive .hx { width: var(--w); height: var(--h); padding: 0 28px; border: 0; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 2px; text-align: center; cursor: pointer; color: var(--text); font: inherit;
   position: relative; background: none; transition: filter .15s, background .15s;
-  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .hive .hx::before, .hive .hx::after { content: ""; position: absolute; inset: 0;
-  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .hive .hx::before { background: color-mix(in srgb, var(--muted) 46%, var(--line)); }
 .hive .hx::after { inset: 2px; background: linear-gradient(160deg, var(--card2), var(--card)); }
 .hive .hx > * { position: relative; z-index: 1; }

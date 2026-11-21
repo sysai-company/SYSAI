@@ -73,3 +73,12 @@ export function compileCard(pl, env = {}) {
     open: plc.ready && plc.id ? { id: plc.id, title: plc.program, file: plc.file } : null,
   };
 }
+
+// «Работа до документов сделана»: у объёма «только ПЛК» это компиляция, у полного и «только экраны» — экраны.
+// Считаем по последнему не пропущенному объёмом этапу до документов: так «только ПЛК» предлагает документы после
+// сборки, а не ждёт экранов, которых в этом объёме нет.
+export function workBeforeDocs(pl) {
+  const stages = (pl && pl.stages) || [];
+  const made = stages.filter((s) => s.stage !== 'docs' && !s.skipped);
+  return made.length > 0 && made[made.length - 1].state === 'done';
+}

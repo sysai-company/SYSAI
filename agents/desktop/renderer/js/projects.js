@@ -7,7 +7,7 @@
 // project-docs.
 import { h, icon, clear, size, when, basename, kindIcon } from './dom.js';
 import { openMenu, toast } from './ui.js';
-import { decisions, compileCard } from './decisions.mjs';
+import { decisions, compileCard, workBeforeDocs } from './decisions.mjs';
 
 const api = window.sysai;
 const STATE_TEXT = { todo: 'не начат', work: 'идёт', done: 'готов', problem: 'нужен инженер' };
@@ -177,8 +177,12 @@ export class ProjectsView {
       h('button', { class: 'icon-btn sm danger', title: 'Удалить проект…', onclick: () => this.remove() }, icon('trash', 'sm')));
     const list = h('div', { class: 'ex-list' });
     // what will open where and what the person chose: one answer of the main process for the tree, the compilation
-    // card and the where-block
-    const plan = api.apps.plan(info.path, info.pipeline.facts || {}).catch(() => null);
+    // card and the where-block. A failure of apps.detect/environment is not silence: the blocks would stay hidden and
+    // the person would read it as «ничего не выбрано» — say it in a toast and in the where-block.
+    const plan = api.apps.plan(info.path, info.pipeline.facts || {}).catch((err) => {
+      toast(`Не удалось определить программы: ${err.message}`, 'err');
+      return { error: err.message || String(err) };
+    });
     clear(this.el).append(bar, this._pipeline(info), this._decisions(info, plan), this._compile(info, plan), this._where(info, plan),
       this._openers(info), this._actions(info), list);
     this._drop(list);
@@ -241,6 +245,13 @@ export class ProjectsView {
     const box = h('div', { class: 'pj-where', hidden: true });
     planned.then((plan) => {
       if (!plan) return;
+      if (plan.error) {   // the main process could not say what opens where: say why, do not stay silent
+        box.append(h('div', { class: 'pj-where-row' }, icon('alert', 'sm'),
+          h('span', { class: 'what', text: `Программы не определить: ${plan.error}` }),
+          h('button', { class: 'btn sm', text: 'Повторить', onclick: () => this.open(info.name) })));
+        box.hidden = false;
+        return;
+      }
       const env = (plan && plan.environment) || {};
       const openers = (plan && plan.openers) || [];
       const row = (side) => h('div', { class: 'pj-where-row' },
@@ -380,9 +391,9 @@ export class ProjectsView {
     const pl = info.pipeline;
     const stage = (key) => pl.stages.find((s) => s.stage === key);
     const next = stage(pl.next);
-    // the work before the documents is done: the last stage the scope has (the screens, or the build for «только ПЛК»)
-    const made = pl.stages.filter((s) => s.stage !== 'docs' && !s.skipped);
-    const ready = made.length > 0 && made[made.length - 1].state === 'done';
+    // the work before the documents is done: the last stage the scope has (the screens, or the build for «только ПЛК») —
+    // decisions.mjs: workBeforeDocs, covered by a unit test
+    const ready = workBeforeDocs(pl);
     const docsDone = stage('docs').state === 'done';
     const acts = h('div', { class: 'pj-acts' });
     if (ready && !docsDone) {

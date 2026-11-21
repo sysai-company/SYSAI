@@ -2002,3 +2002,37 @@ test('the swarm grid is drawn as rows of hexagons, not a flat table', () => {
   assert.match(css, /\.ask \.choice input\[type=checkbox\][^{]*\{[^}]*appearance:\s*none/, 'галочка вопроса своя');
   assert.match(css, /\.ask \.choice input\[type=checkbox\][^{]*\{[^}]*width:\s*19px/, 'и того же размера, что на сайте');
 });
+
+// ---------------------------------------------------------------- «документы после работы» и видимая ошибка плана
+test('the documents are offered when the last stage the scope has is done', async () => {
+  // «только ПЛК»: экранов в объёме нет — документы предлагаются после компиляции, а не после экранов, которых не будет.
+  // Раньше окно ждало именно экранов, и в этом объёме предложение документов не появлялось никогда.
+  const { workBeforeDocs } = await import('../renderer/js/decisions.mjs');
+  const st = (rows) => rows.map(([stage, state, skipped]) => ({ stage, state, skipped: Boolean(skipped) }));
+  const full = (over) => st([['materials', 'done'], ['decisions', 'done'], ['plc', 'done'], ['build', 'done'], ['hmi', 'done'], ['docs', 'todo'], ...(over || [])]);
+
+  assert.equal(workBeforeDocs({ stages: full() }), true, 'полный проект: экраны готовы — можно документы');
+  assert.equal(workBeforeDocs({ stages: full([['hmi', 'work']]) }), false, 'экраны идут — рано');
+
+  const plcOnly = (build) => st([['materials', 'done'], ['decisions', 'done'], ['plc', 'done'], ['build', build], ['hmi', 'todo', 1], ['docs', 'todo']]);
+  assert.equal(workBeforeDocs({ stages: plcOnly('done') }), true, '«только ПЛК»: компиляция готова — можно документы');
+  assert.equal(workBeforeDocs({ stages: plcOnly('work') }), false, '«только ПЛК»: компиляция не готова — рано');
+
+  const hmiOnly = (hmi) => st([['materials', 'done'], ['decisions', 'done'], ['plc', 'todo', 1], ['build', 'todo', 1], ['hmi', hmi], ['docs', 'todo']]);
+  assert.equal(workBeforeDocs({ stages: hmiOnly('done') }), true, '«только экраны»: экраны готовы — можно документы');
+  assert.equal(workBeforeDocs({ stages: hmiOnly('todo') }), false, '«только экраны»: экранов нет — рано');
+  assert.equal(workBeforeDocs({ stages: [] }), false, 'этапов нет — предлагать нечего');
+  assert.equal(workBeforeDocs(null), false, 'хода нет — не падаем');
+});
+
+test('a failure of the environment plan is shown, not swallowed', () => {
+  // Один запрос apps:plan кормит три блока; если он упал, блоки оставались скрытыми и человек читал это как
+  // «ничего не выбрано». Ошибка должна быть видна: тост и строка в блоке «Где и что будет».
+  const js = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'projects.js'), 'utf8');
+  assert.doesNotMatch(js, /apps\.plan\([^)]*\)\.catch\(\(\) => null\)/, 'ошибка плана не глушится в null');
+  const start = js.indexOf('apps.plan(');
+  const planCall = js.slice(start, js.indexOf('clear(this.el)', start));
+  assert.match(planCall, /catch\(\(err\) =>/, 'у запроса есть обработчик ошибки');
+  assert.match(planCall, /toast\(/, 'ошибка видна человеку тостом, а не только в консоли');
+  assert.match(js, /plan\.error/, 'блок «Где и что будет» показывает причину, а не молчит');
+});
