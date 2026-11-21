@@ -1957,3 +1957,48 @@ test('перезапуск: файл «окно открылось» пишет 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------- соты: раскладка рядами
+// Соты — правильные шестиугольники, сцепленные гранями: сколько влезает в ряд и как ряды ложатся друг под друга.
+// Раскладка вынесена в renderer/js/combs.mjs, чтобы её можно было проверить без окна и браузера.
+test('the cells of the swarm lie in rows: a full row, a shifted next one, nothing lost', async () => {
+  const { perRow, rowsOf, isOdd } = await import('../renderer/js/combs.mjs');
+
+  // сколько шестиугольников влезает в ширину: шаг ряда равен ширине соты, соседи не наползают друг на друга
+  assert.equal(perRow(640, 46), 13, '640 px при соте 46 px — 13 в ряд');
+  assert.equal(perRow(380, 46), 8, 'узкое окно 380 px — 8');
+  assert.equal(perRow(46, 46), 1);
+  assert.equal(perRow(10, 46), 1, 'уже одной соты — всё равно одна, а не ноль');
+  assert.equal(perRow(0, 46), 1);
+  assert.equal(perRow(undefined, 46), 1, 'ширины нет — одна сота, а не падение');
+
+  // ряды подряд: каждая сота ровно в одном ряду, порядок не теряется
+  assert.deepEqual(rowsOf(3, 2), [[0, 1], [2]]);
+  assert.deepEqual(rowsOf(16, 8), [[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13, 14, 15]]);
+  const all = rowsOf(40, 8).flat();
+  assert.equal(all.length, 40, 'ни одна сота не потеряна');
+  assert.deepEqual([...all].sort((a, b) => a - b), Array.from({ length: 40 }, (_, i) => i), 'и не задвоена');
+  assert.deepEqual(rowsOf(0, 8), []);
+  assert.deepEqual(rowsOf(2, 8), [[0, 1]], 'неполный ряд — просто короткий');
+  assert.equal(rowsOf(5, 1).length, 5, 'по одной в ряд — пять рядов');
+
+  // нечётный ряд сдвинут на полсоты: 0 — ровный, 1 — сдвинут, 2 — снова ровный
+  assert.deepEqual([0, 1, 2, 3].map(isOdd), [false, true, false, true]);
+});
+
+test('the swarm grid is drawn as rows of hexagons, not a flat table', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'swarm.js'), 'utf8');
+  assert.match(js, /from '\.\/combs\.mjs'/, 'окно берёт раскладку из combs.mjs, а не считает ряды само');
+  assert.match(js, /rowsOf\(/, 'ряды считаются общей раскладкой');
+  assert.match(js, /comb-row/, 'ряд — свой элемент: сдвиг нечётного ряда делается рядом, а не каждой сотой');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'style.css'), 'utf8');
+  // правильный шестиугольник: 46×53 (2/√3 ≈ 1.155) и ряд, поднятый на четверть высоты — грани сцеплены
+  assert.match(css, /--cw:\s*46px;\s*--ch:\s*53px/, 'сота правильной формы, а не сжатая');
+  assert.match(css, /\.comb-row\s*\+\s*\.comb-row\s*\{[^}]*margin-top:\s*calc\(var\(--ch\)\s*\*\s*-0\.25\)/,
+    'следующий ряд поднимается на четверть соты: соседи касаются гранями');
+  assert.match(css, /\.comb-row\.odd\s*\{[^}]*margin-left:\s*calc\(var\(--cw\)\s*\/\s*2\)/, 'нечётный ряд сдвинут на полсоты');
+  assert.match(css, /\.comb-grid \.cell::before[^}]*clip-path/, 'рамка — кольцо того же контура, а не прямоугольник');
+  // галочки в карточке вопроса — свои, как на сайте, а не стоковый квадрат браузера
+  assert.match(css, /\.ask \.choice input\[type=checkbox\][^{]*\{[^}]*appearance:\s*none/, 'галочка вопроса своя');
+  assert.match(css, /\.ask \.choice input\[type=checkbox\][^{]*\{[^}]*width:\s*19px/, 'и того же размера, что на сайте');
+});
