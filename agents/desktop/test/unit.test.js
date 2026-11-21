@@ -1377,6 +1377,38 @@ test('обновление: новая сборка в state.json — окно �
   assert.equal(updates.offerKey({}), '');
 });
 
+test('соты: новый документ доступов в state.json — окно переспрашивает рой сразу, без перезапуска', () => {
+  const home = tmp();
+  const file = path.join(home, 'state.json');
+  const write = (s) => fs.writeFileSync(file, JSON.stringify(s));
+  write({ access_sha: 'a'.repeat(64), offer: { version: '0.4.15', build: 'b' } });
+  const ticks = [];
+  const timer = { set: (fn) => { ticks.push(fn); return 3; }, clear: () => {} };
+  const heard = [];
+  updates.watch({ home, key: updates.accessKey, changed: (k) => heard.push(k), timer });
+  ticks[0]();
+  assert.deepEqual(heard, [], 'документ, что был при открытии, окно уже прочло');
+  write({ access_sha: 'a'.repeat(64), offer: { version: '0.4.16', build: 'c' } });
+  ticks[0]();
+  assert.deepEqual(heard, [], 'новая сборка — не новость для сот');
+  write({ access_sha: 'b'.repeat(64), offer: { version: '0.4.16', build: 'c' } });
+  ticks[0]();
+  ticks[0]();
+  assert.equal(heard.length, 1, 'администратор включил соты: синхронизатор принёс новый документ — один раз');
+  assert.equal(updates.accessKey({}), '');
+});
+
+test('обновление: окно знает, держится ли живой канал и почему нет', () => {
+  const home = tmp();
+  fs.writeFileSync(path.join(home, 'state.json'), JSON.stringify({ live_up: false,
+    live_error: 'SYSAI не принял токен агента для живого канала — работаем по пульсу' }));
+  const st = updates.status({ home });
+  assert.equal(st.liveUp, false);
+  assert.match(st.liveError, /не принял токен/);
+  fs.writeFileSync(path.join(home, 'state.json'), JSON.stringify({ live_up: true, live_error: '' }));
+  assert.deepEqual([updates.status({ home }).liveUp, updates.status({ home }).liveError], [true, '']);
+});
+
 test('обновление: «установить» только просит синхронизатор', () => {
   const home = tmp();
   assert.equal(updates.wake(home).asking, false, 'цикла нет — будить некого');

@@ -896,11 +896,16 @@ function drawSidebar() {
   $('search').addEventListener('input', debounce(drawSessions, 120));
   const more = h('button', { class: 'icon-btn', title: 'Ещё', id: 'side-more' }, icon('dots'),
     h('span', { class: 'upd-badge' }));
-  more.addEventListener('click', () => openMenu(more, [
+  // Живой канал (websocket): держится ли он — и почему нет. Синхронизатор пишет это в state.json, окно читает
+  // при открытии меню: «почему не мгновенно» видно здесь, а не только в журнале.
+  more.addEventListener('click', async () => {
+    const live = await api.updates.status().catch(() => null);
+    S.live = live && typeof live === 'object' ? live : null;
+    openMenu(more, [
     { label: S.upd && S.upd.update ? `Установить обновление ${(S.upd.offered || {}).version || ''}`.trim()
       : 'Проверить обновление',
       sub: S.upd && S.upd.error ? String(S.upd.error).slice(0, 90)
-        : (S.upd && S.upd.update ? S.upd.why : 'что предлагает SYSAI для этого компьютера'),
+        : (S.upd && S.upd.update ? S.upd.why : 'что предлагает SYSAI для этого компьютера') + liveWhy(),
       value: 'update', icon: 'download' },
     { label: 'Перезапустить агента', sub: 'Hermes на этом компьютере', value: 'restart', icon: 'refresh' },
     { label: 'Журнал окна', value: 'logs', icon: 'fileText' },
@@ -914,7 +919,8 @@ function drawSidebar() {
     } else if (v === 'restart') restartAcp();
     else if (v === 'logs') api.win.logs().then((p) => openPath(p)).catch((e) => toast(e.message, 'err'));
     else if (v === 'home') api.shell.open(S.info.home).catch((e) => toast(e.message, 'err'));
-  } }));
+  } });
+  });
   $('side-foot').replaceChildren(h('span', { class: 'avatar', text: initials(S.info.person, S.info.agent) }),
     h('div', { class: 'who' }, h('b', { text: S.info.person || S.info.agent || 'Агент SYSAI' }),
       h('span', { text: S.info.agent ? `агент ${S.info.agent}` : 'компьютер не подключён' })), more);
@@ -998,8 +1004,7 @@ function drawTop() {
   ].filter(Boolean));
 }
 
-function bootScreen() {
-  const st = S.acp;
+function bootScreen() {  const st = S.acp;
   const tile = h('span', { class: `tile${st.state === 'starting' ? ' live' : ''}` }, h('i'), h('i'), h('i'));
   if (!S.info.connected) {
     return h('div', { class: 'boot' }, tile, h('h2', { text: 'Компьютер не подключён к SYSAI' }),
@@ -1209,6 +1214,24 @@ function wire() {
   });
 }
 
+// Соты: спросить разрешение заново и выставить значок в композере. Спрашивается при запуске и когда синхронизатор
+// принёс новый документ доступов (`swarm:changed`), чтобы включённые соты появлялись без перезапуска окна.
+function refreshSwarm() {
+  return api.swarm.allowed().then((allowed) => {
+    swarmPanel.allowed = allowed && typeof allowed === 'object' ? allowed : { on: false, cells: 0 };
+    composer.updateSwarm({ on: Boolean(allowed && allowed.on), busy: swarmPanel.busy });
+  }).catch(() => composer.updateSwarm({ on: false }));
+}
+
+// Живой канал: одна строка для меню «Ещё» — держится он или нет и почему. Пусто, когда всё в порядке: нечего
+// говорить человеку, у которого изменения и так приходят сразу.
+function liveWhy() {
+  const live = S.live;
+  if (!live || live.liveUp) return '';
+  const why = String(live.liveError || '').trim();
+  return ` · ${why ? `живой канал не держится: ${why}` : 'живой канал не держится: работаем по пульсу'}`;
+}
+
 async function main() {
   S.info = await api.info().catch(() => ({}));
   document.title = S.info.agent ? `Агент SYSAI — ${S.info.agent}` : 'Агент SYSAI';
@@ -1234,8 +1257,10 @@ async function main() {
   api.acp.onRequestGone(onRequestGone);
   api.auto.onState((state) => { S.auto = state; composer.update(); });
   // Соты: значок появляется, только если профиль это разрешает (подписанный документ доступов, а не окно)
-  swarmPanel.init().then((allowed) => composer.updateSwarm({ on: Boolean(allowed && allowed.on), busy: swarmPanel.busy }))
-    .catch(() => composer.updateSwarm({ on: false }));
+  swarmPanel.init().then(() => refreshSwarm()).catch(() => composer.updateSwarm({ on: false }));
+  // Синхронизатор принёс новый документ доступов (администратор включил соты): переспрашиваем разрешение сейчас,
+  // а не только при запуске окна — иначе значок сот не появлялся до перезапуска.
+  if (api.updates.onAccess) api.updates.onAccess(() => refreshSwarm());
   api.auto.onToggle(() => setAuto(!S.auto.on));
   api.win.onShow(({ path, line }) => openPath(path, line));
   api.win.onNotice(({ text, kind }) => {

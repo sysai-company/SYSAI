@@ -375,25 +375,28 @@ details[open] > .ac-head { border-bottom: 1px solid var(--line); border-radius: 
 .hive-row.odd { margin-left: calc(var(--w) / 2); }
 /* сдвиг нечётного ряда — полсоты (85px при соте 170): соты теперь касаются гранями, ряд стал уже прежнего
    с зазорами 12px, поэтому сдвиг держится на любой широкой странице; узкая раскладка отменяет его в своих правилах */
-.hive form { display: flex; flex-direction: column; align-items: center; gap: 3px; margin: 0; }
+.hive .hive-cell { display: flex; flex: none; margin: 0; }
 /* большие соты с рамкой-кольцом: контур (::before) и лицо (::after) — тот же шестиугольник, рамка видна у каждой соты.
    Контур остроконечный (острия сверху и снизу), как у схемы .comb-grid: при gap: 0 соседи касаются вертикальными
    гранями, ряд поднимается на четверть высоты, нечётный ряд сдвигается на полсоты — соты действительно сцеплены. */
 .hive .hx { width: var(--w); height: var(--h); padding: 0 28px; border: 0; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 2px; text-align: center; cursor: pointer; color: var(--text); font: inherit;
-  position: relative; background: none; transition: filter .15s, background .15s;
+  text-decoration: none; position: relative; background: none; transition: filter .15s, background .15s;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .hive .hx::before, .hive .hx::after { content: ""; position: absolute; inset: 0;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 .hive .hx::before { background: color-mix(in srgb, var(--muted) 46%, var(--line)); }
 .hive .hx::after { inset: 2px; background: linear-gradient(160deg, var(--card2), var(--card)); }
 .hive .hx > * { position: relative; z-index: 1; }
-.hive .hx:hover, .hive .hx:focus-visible { filter: brightness(1.18); }
 .hive .hx.on::before { background: var(--green); }
 .hive .hx.on::after { background: linear-gradient(160deg, color-mix(in srgb, var(--green) 34%, var(--card2)), color-mix(in srgb, var(--green) 14%, var(--card))); }
 .hive .hx.off { color: var(--soft); }
 .hive .hx.picked::before { background: var(--clay); }
 .hive .hx.picked::after { background: linear-gradient(160deg, color-mix(in srgb, var(--clay) 32%, var(--card2)), color-mix(in srgb, var(--clay) 10%, var(--card))); }
+/* сота — ссылка на свою настройку: при наведении светлеет, и рамка загорается (после .on/.picked — иначе их цвет
+   перебьёт). Под сотой ничего нет: ряд ниже поднят на четверть соты и накрыл бы любой текст там. */
+.hive .hx:hover, .hive .hx:focus-visible { filter: brightness(1.22); color: var(--text); outline: none; }
+.hive .hx:hover::before, .hive .hx:focus-visible::before { background: var(--clay2); }
 .hive .hx b { font-size: 12.5px; font-weight: 600; line-height: 1.2; max-width: 118px; }
 /* имя агента переносится, а не обрезается с двух сторон: по центру обрезанный текст читается хуже всего */
 .hive .hx .small { color: var(--muted); font-size: 11px; max-width: 118px; overflow-wrap: anywhere; line-height: 1.25; }
@@ -403,7 +406,6 @@ details[open] > .ac-head { border-bottom: 1px solid var(--line); border-radius: 
 .hx-mini i.on { background: color-mix(in srgb, var(--green) 45%, var(--line)); } .hx-mini i.run { background: var(--green); }
 .hive .hx-st { margin-top: 3px; font-size: 11px; color: var(--muted); max-width: 104px; }
 .hive .hx.on .hx-st { color: var(--green); }
-.hive .hx-edit { color: var(--muted); text-decoration: underline dotted; text-underline-offset: 2px; } .hive .hx-edit:hover { color: var(--text); }
 @media (max-width: 760px) {
   .hive { --w: 112px; --h: 100px; }
   .hive-row { flex-wrap: wrap; gap: 0; } .hive-row + .hive-row { margin-top: calc(var(--h) * -0.25); } .hive-row.odd { margin-left: 0; }

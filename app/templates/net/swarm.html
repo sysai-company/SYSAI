@@ -2,7 +2,7 @@
 {% block head %}<link rel="stylesheet" href="{{ asset('net.css') }}">{% endblock %}
 {% block body %}
 <div class="page-h"><div><h1>{{ section }}</h1>
-  <p>Сота — человек с агентом. Нажмите на соту, чтобы включить или выключить ему рой; «настроить» — сколько сот и сколько из них работают разом. Компьютер на связи получает изменение сразу, остальные — при следующем пульсе, до 5 минут.</p></div>
+  <p>Сота — человек с агентом. Нажмите на соту — откроется её рой: включён ли, сколько сот и сколько из них работают разом. Компьютер на связи получает изменение сразу, остальные — при следующем пульсе, до 5 минут.</p></div>
   <div class="actions"><a class="btn" href="/agents/access">Доступы</a></div></div>
 {% if msg %}<div class="card note" role="status">{{ msg }}</div>{% endif %}
 {% if error %}<div class="card note warn" role="alert">{{ error }}</div>{% endif %}
@@ -20,18 +20,15 @@
   {% for row in cells|batch(3) %}
   <div class="hive-row{{ ' odd' if loop.index is even }}">
   {% for c in row %}
-  <form method="post" action="/agents/swarm/{{ c.id }}" role="listitem">
-    {% if not c.swarm.on %}<input type="hidden" name="on" value="1">{% endif %}
-    <input type="hidden" name="cells" value="{{ c.swarm.cells }}"><input type="hidden" name="at" value="{{ c.swarm.at }}">
-    <button class="hx {{ 'on' if c.swarm.on else 'off' }}{{ ' picked' if chosen and chosen.id == c.id }}" data-agent="{{ c.id }}" data-live="{{ 1 if c.live else 0 }}"
-      title="{{ 'Выключить' if c.swarm.on else 'Включить' }} рой: {{ c.user_name }} · {{ 'компьютер на связи' if c.live else 'компьютер не на связи' }}" aria-pressed="{{ 'true' if c.swarm.on else 'false' }}">
+  <div class="hive-cell" role="listitem">
+    <a class="hx {{ 'on' if c.swarm.on else 'off' }}{{ ' picked' if chosen and chosen.id == c.id }}" href="/agents/swarm?pick={{ c.id }}#pick" data-agent="{{ c.id }}" data-live="{{ 1 if c.live else 0 }}"
+      title="Рой: {{ c.user_name }} · {{ 'компьютер на связи' if c.live else 'компьютер не на связи' }}"{% if chosen and chosen.id == c.id %} aria-current="true"{% endif %}>
       <i class="live-dot{{ '' if c.live else ' away' }}" aria-hidden="true"></i>
       <b>{{ c.user_name }}</b><span class="small">{{ c.name }}</span>
       <span class="hx-mini" aria-hidden="true">{% for i in range([c.swarm.cells, 16]|min) %}<i class="{{ 'run' if c.swarm.on and i < c.swarm.at else ('on' if c.swarm.on else '') }}"></i>{% endfor %}</span>
       <span class="hx-st">{% if c.swarm.on %}{{ c.swarm.cells }} сот · {{ c.swarm.at }} разом{% else %}выключен{% endif %}</span>
-    </button>
-    {% if not (chosen and chosen.id == c.id) %}<a class="hx-edit small" href="/agents/swarm?pick={{ c.id }}#pick">настроить</a>{% endif %}
-  </form>
+    </a>
+  </div>
   {% endfor %}
   </div>
   {% endfor %}

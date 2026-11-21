@@ -140,6 +140,10 @@ function status({ home }) {
     error: String(state.error || ''),
     errorAt: state.error_at || '',
     syncedAt: state.pulse_at || state.synced_at || '',
+    // The live channel (app/net/live.py): held or not, and why not — the synchronizer writes both to state.json, so
+    // «почему не мгновенно» has an answer in the window, not only in the journal.
+    liveUp: Boolean(state.live_up),
+    liveError: String(state.live_error || ''),
     logAt,
     log: tail(logFile, 6),
   };
@@ -156,12 +160,22 @@ function offerKey(state) {
   return key === '|||' ? '' : key;
 }
 
-// Watches state.json every `every` ms; `changed()` once per new offer (not for the one there at the start: the window
-// checks that itself on opening). Returns stop(). `timer` is swappable for the tests.
-function watch({ home, changed, every = 3000, timer = { set: setInterval, clear: clearInterval } }) {
-  let seen = offerKey(readJson(path.join(home, 'state.json'), {}));
+// The verified access document this computer holds (state.json: `access_sha` — the hash the synchronizer checked
+// against the signature) as one key. It changes when SYSAI brought new rules — the swarm of the person among them —
+// so the window can ask for them again at once instead of only at its start.
+function accessKey(state) {
+  const sha = (state || {}).access_sha;
+  return typeof sha === 'string' ? sha : '';
+}
+
+// Watches state.json every `every` ms; `changed(key)` once per new value of `key` (by default `offerKey`: the builds
+// SYSAI offers). Not for the value there at the start: the window checks that itself on opening. Returns stop().
+// `key` and `timer` are swappable for the tests.
+function watch({ home, changed, key = offerKey, every = 3000, timer = { set: setInterval, clear: clearInterval } }) {
+  const read = () => key(readJson(path.join(home, 'state.json'), {}));
+  let seen = read();
   const id = timer.set(() => {
-    const now = offerKey(readJson(path.join(home, 'state.json'), {}));
+    const now = read();
     if (now && now !== seen) {
       seen = now;
       changed(now);
@@ -170,4 +184,4 @@ function watch({ home, changed, every = 3000, timer = { set: setInterval, clear:
   return () => timer.clear(id);
 }
 
-module.exports = { cmp, compare, offerOf, desktopOf, tail, check, wake, status, readJson, offerKey, watch };
+module.exports = { cmp, compare, offerOf, desktopOf, tail, check, wake, status, readJson, offerKey, accessKey, watch };

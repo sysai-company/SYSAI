@@ -411,7 +411,10 @@ def test_the_swarm_is_switched_for_one_person_on_the_honeycomb_page(client, net_
     assert '<span class="nav-t">Рой агентов</span>' in item and ui_icons.ICONS["comb"] in item
     assert "<title>Рой агентов — SYSAI</title>" in html and "<h1>Рой агентов</h1>" in html
     assert f'data-agent="{net_agent["id"]}"' in html and f'data-agent="{other.id}"' in html, "сота на каждого"
-    assert f'action="/agents/swarm/{net_agent["id"]}"' in html
+    # рой включают в карточке настройки (своей для каждого), а сота — ссылка на неё
+    assert f'href="/agents/swarm?pick={other.id}#pick"' in html, "сота открывает настройку своего человека"
+    assert f'action="/agents/swarm/{net_agent["id"]}"' in client.get(f"/agents/swarm?pick={net_agent['id']}").text, \
+        "карточка выбранного человека отправляет в его же форму"
 
     r = client.post(f"/agents/swarm/{net_agent['id']}", data={"on": "1", "cells": "12", "at": "30"}, follow_redirects=False)
     assert r.status_code == 303
@@ -438,6 +441,21 @@ def test_the_swarm_is_switched_for_one_person_on_the_honeycomb_page(client, net_
     assert 'name="at" type="number" min="1" max="40" step="1" value="6"' in other_card
     client.post(f"/agents/swarm/{net_agent['id']}", data={"cells": "12", "at": "6"})  # снова нажали — выключили
     assert access.document(net_agent["id"])["rules"]["swarm"]["on"] is False
+
+
+def test_a_cell_of_the_hive_opens_its_settings_and_nothing_lies_under_it(client, net_agent):
+    """Просьба владельца: слова «настроить» под сотой нет (нижний ряд его накрывал) — сота сама ссылка на свою
+    настройку; рой включают и выключают галочкой в карточке, а не нажатием на соту."""
+    with SessionLocal() as s:
+        admin_id = s.query(User).filter(User.role == "superuser").first().id
+    other = agents.create(admin_id, "opo-second", net_agent["department_id"], None, "hermes", "", by="test")
+    page = client.get(f"/agents/swarm?pick={net_agent['id']}").text
+    assert "настроить" not in page and "hx-edit" not in page, "под сотой ничего нет — ряд ниже ничего не накрывает"
+    hive = page.split('class="hive"', 1)[1].split('id="pick"', 1)[0]
+    assert f'href="/agents/swarm?pick={other.id}#pick"' in hive, "сота открывает настройку своего человека"
+    assert f'href="/agents/swarm?pick={net_agent["id"]}#pick"' in hive
+    assert "<form" not in hive, "нажатие на соту не переключает рой: это делает галочка в карточке"
+    assert "hx-edit" not in client.get("/static/net.css").text
 
 
 def test_the_honeycomb_builds_each_agents_document_once(client, net_agent, monkeypatch):

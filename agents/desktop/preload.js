@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('sysai', {
     now: () => call('update:now'),
     status: () => call('update:status'),
     onOffered: on('update:offered'), // синхронизатор услышал новую сборку: проверить сразу
+    // синхронизатор принёс новый документ доступов: переспросить разрешение на соты, не дожидаясь перезапуска
+    onAccess: on('swarm:changed'),
   },
   // Соты (рой): включены ли они для профиля, сколько разрешено, запуск и живое состояние каждой соты
   swarm: {
