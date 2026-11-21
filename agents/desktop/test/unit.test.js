@@ -2037,10 +2037,16 @@ test('a failure of the environment plan is shown, not swallowed', () => {
   assert.match(js, /plan\.error/, 'блок «Где и что будет» показывает причину, а не молчит');
   // Блоки, что читают план, обязаны проверить plan.error раньше, чем превращать его в пустое окружение:
   // иначе дерево рисует все строки как «не выбран», а карточка компиляции врёт, что файла проекта нет.
-  for (const block of ['_decisions(info, planned)', '_compile(info, planned)']) {
+  // Guard обязан стоять до вызова decisions()/compileCard(): ниже — он уже ничего не защищает.
+  for (const [block, use] of [['_decisions(info, planned)', 'decisions('], ['_compile(info, planned)', 'compileCard(']]) {
     const at = js.indexOf(block);
     assert.ok(at >= 0, block);
     const body = js.slice(at, js.indexOf('return box;', at));
     assert.match(body, /plan\.error\) return/, `${block}: при ошибке плана блок не рисуется по пустому окружению`);
+    // the first use inside the method body: not the method's own name in the slice (it holds 'decisions(' too)
+    const useAt = body.indexOf(use, block.length);
+    assert.ok(useAt >= 0, `${block}: блок строится через ${use}`);
+    assert.ok(body.indexOf('plan.error) return') < useAt,
+      `${block}: проверка ошибки стоит раньше, чем блок строится по окружению`);
   }
 });
