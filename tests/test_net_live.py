@@ -108,6 +108,58 @@ def test_a_deleted_agent_is_cut_off_too(client, net_agent):
     assert not live.connected(net_agent["id"]) and client.get("/health").json()["live"] == 0
 
 
+def test_a_new_computer_by_code_cuts_the_old_ones_socket(client, net_agent):
+    """Connecting another computer with a new code revokes the old token: the old computer's open socket goes too,
+    so it stops hearing changes and the page no longer counts the agent as on the line before the new one is."""
+    with _open(client, net_agent) as ws:
+        code = agents.issue_code(net_agent["id"])
+        agents.exchange(code, host="PC-OPO-2", harness="hermes")
+        with pytest.raises(WebSocketDisconnect) as cut:
+            ws.receive_json()
+        assert cut.value.code == live.UNAUTHORIZED
+    assert not live.connected(net_agent["id"])
+
+
+def test_the_keepalive_asks_the_token_again_and_closes_a_revoked_one(client, net_agent, monkeypatch):
+    """A path that revokes the token without closing the socket (none known today) still ends it at the next
+    keepalive: the socket outlives its token by one ping period at most."""
+    from app.db import SessionLocal
+    from app.net.models import NetAgentToken
+    monkeypatch.setattr(live, "PING_EVERY", 0.2)
+    with _open(client, net_agent) as ws:
+        assert ws.receive_json() == {"type": "ping"}, "a valid token keeps the keepalive going"
+        with SessionLocal() as s:  # revoked behind the channel's back: no drop()
+            for row in s.query(NetAgentToken).filter(NetAgentToken.agent_id == net_agent["id"]):
+                row.revoked_at = agents.now()
+            s.commit()
+        with pytest.raises(WebSocketDisconnect) as cut:
+            ws.receive_json()
+        assert cut.value.code == live.UNAUTHORIZED
+
+
+def test_a_disabled_owner_cuts_the_agents_socket(client, net_agent):
+    """The owner's account switched off (or deleted) ends the agent's access: its open socket closes as well."""
+    from fastapi.testclient import TestClient
+    from app import accounts
+    from app.db import SessionLocal, User
+    from app.main import app
+    accounts.register("olga", "correct-horse")
+    with SessionLocal() as s:
+        s.query(User).filter_by(username="olga").one().status = "approved"
+        s.commit()
+        olga = s.query(User).filter_by(username="olga").one().id
+    other = agents.create(olga, "opo-olga", net_agent["department_id"], None, "hermes", "", by="test")
+    _, token = agents.exchange(agents.issue_code(other.id), host="PC-OLGA", harness="hermes")
+    with TestClient(app) as c, c.websocket_connect("/agents/api/live",
+                                                   headers={"Authorization": f"Bearer {token}"}) as ws:
+        assert live.connected(other.id)
+        accounts.apply(olga, "disable", by="sysai")
+        with pytest.raises(WebSocketDisconnect) as cut:
+            ws.receive_json()
+        assert cut.value.code == live.UNAUTHORIZED
+    assert not live.connected(other.id)
+
+
 def test_with_nobody_asked_the_message_does_not_say_all_are_on_the_line(client, net_on):
     """No agents in the network: «Все на связи» about nobody would be a lie."""
     r = client.post("/agents/update", data={"scope": "all"})

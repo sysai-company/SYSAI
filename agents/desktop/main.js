@@ -1058,7 +1058,8 @@ function ipc() {
   // reads the offer and wakes the synchronizer — installing stays in one place, update.py.
   handle('update:check', () => {
     const cfg = config.load(HOME);
-    return updates.check({ home: HOME, server: cfg.server, token: cfg.token, request: netJson });
+    // the window counts too: a newer window on offer with the synchronizer current is still «есть обновление»
+    return updates.check({ home: HOME, server: cfg.server, token: cfg.token, request: netJson, window: VERSION });
   });
   handle('update:now', () => updates.wake(HOME));
   // «Что с обновлением сейчас»: окно спрашивает каждые пару секунд после «Установить» — ставит синхронизатор в

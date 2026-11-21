@@ -57,13 +57,19 @@ def count() -> int:
 
 
 async def serve(ws: WebSocket, authenticate) -> None:
-    """`authenticate(headers, ip)` -> agent id or None, called in a thread (it asks the base)."""
+    """`authenticate(headers, ip)` -> agent id or None, called in a thread (it asks the base).
+
+    The token is asked again at every keepalive: the paths that end access close the socket at once (`drop`), and
+    this catches any path that does not — a socket outlives its token by one ping period at most."""
     from anyio import to_thread
-    agent_id = await to_thread.run_sync(authenticate, ws.headers, ws.client.host if ws.client else "")
+    ip = ws.client.host if ws.client else ""
+    agent_id = await to_thread.run_sync(authenticate, ws.headers, ip)
     if agent_id is None:
+        log.info("live: refused (no valid agent token) from %s", ip or "?")
         await ws.close(code=UNAUTHORIZED)
         return
     await ws.accept()
+    log.info("live: agent %s connected from %s", agent_id, ip or "?")
     loop, queue = asyncio.get_running_loop(), asyncio.Queue()
     entries = _sockets.setdefault(agent_id, {})
     entries[id(queue)] = (loop, queue)
@@ -73,7 +79,11 @@ async def serve(ws: WebSocket, authenticate) -> None:
             try:
                 message = await asyncio.wait_for(queue.get(), PING_EVERY)
             except asyncio.TimeoutError:
-                message = {"type": "ping"}
+                if await to_thread.run_sync(authenticate, ws.headers, ip) != agent_id:
+                    log.info("live: agent %s token no longer valid — closing", agent_id)
+                    message = None
+                else:
+                    message = {"type": "ping"}
             if message is None:
                 await ws.close(code=UNAUTHORIZED)
                 return
@@ -96,3 +106,4 @@ async def serve(ws: WebSocket, authenticate) -> None:
         entries.pop(id(queue), None)
         if not entries:
             _sockets.pop(agent_id, None)
+        log.info("live: agent %s disconnected", agent_id)

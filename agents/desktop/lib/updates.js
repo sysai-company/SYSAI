@@ -62,8 +62,18 @@ function offerOf(body) {
   return { version: String(got.version), build: String(got.build || ''), auto_update: got.auto_update !== false };
 }
 
+// The window SYSAI offers ({version, sha256}) from the signed document; {} when it names none.
+function desktopOf(body) {
+  const doc = body && (body.doc || body);
+  const got = doc && doc.desktop;
+  if (!got || !got.version) return {};
+  return { version: String(got.version), sha256: String(got.sha256 || ''), auto_update: got.auto_update !== false };
+}
+
 // request(url, headers) -> {status, body} — the transport is passed in so this file stays testable without a server.
-async function check({ home, server, token, state, request }) {
+// `window` — the version of this window (package.json): a newer window on offer is an update too, and the same «Установить»
+// (it wakes the synchronizer, which installs the window as well) puts it in place.
+async function check({ home, server, token, state, request, window = '' }) {
   const got = state || readJson(path.join(home, 'state.json'), {}) || {};
   const versions = got.versions || {};
   const local = { version: String(versions['sysai-agent'] || ''), build: '' };
@@ -89,6 +99,13 @@ async function check({ home, server, token, state, request }) {
   }
   const offered = offerOf(answer.body);
   const verdict = compare(local, offered);
+  if (!verdict.update && window) {
+    const win = desktopOf(answer.body);
+    if (win.version && cmp(win.version, window) > 0) {
+      return { ...out, ok: true, offered: win, desktop: true, update: true,
+        why: `SYSAI даёт окно ${win.version}, открыто ${window}`, autoUpdate: win.auto_update !== false };
+    }
+  }
   return { ...out, ok: true, offered, update: verdict.update, why: verdict.why, autoUpdate: offered.auto_update !== false };
 }
 
@@ -153,4 +170,4 @@ function watch({ home, changed, every = 3000, timer = { set: setInterval, clear:
   return () => timer.clear(id);
 }
 
-module.exports = { cmp, compare, offerOf, tail, check, wake, status, readJson, offerKey, watch };
+module.exports = { cmp, compare, offerOf, desktopOf, tail, check, wake, status, readJson, offerKey, watch };

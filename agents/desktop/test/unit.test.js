@@ -1336,6 +1336,20 @@ test('обновление: что предлагает SYSAI и почему н
   assert.match(lonely.error, /не подключён/);
 });
 
+test('обновление: новое окно при свежем синхронизаторе — тоже «есть обновление»', async () => {
+  const home = tmp();
+  const state = { versions: { 'sysai-agent': '0.4.15' } };
+  const doc = { doc: { synchronizer: { version: '0.4.15', build: '' }, desktop: { version: '0.10.3', sha256: 'd'.repeat(64) } } };
+  const request = async () => ({ status: 200, body: doc });
+  const got = await updates.check({ home, server: 'https://sysai.test', token: 'tok', state, request, window: '0.10.2' });
+  assert.equal(got.update, true, 'синхронизатор свежий, а окно новее — плашка должна быть');
+  assert.equal(got.desktop, true);
+  assert.equal(got.offered.version, '0.10.3');
+  assert.match(got.why, /окно 0\.10\.3, открыто 0\.10\.2/);
+  const same = await updates.check({ home, server: 'https://sysai.test', token: 'tok', state, request, window: '0.10.3' });
+  assert.equal(same.update, false, 'то же окно — обновлять нечего');
+});
+
 test('обновление: новая сборка в state.json — окно узнаёт сразу, не через полчаса', () => {
   const home = tmp();
   const file = path.join(home, 'state.json');

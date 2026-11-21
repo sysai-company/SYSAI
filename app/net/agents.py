@@ -163,7 +163,10 @@ def exchange(code: str, host: str = "", harness: str = "", versions=None, ip: st
         journal.log("agent.connect", agent.name, {"компьютер": agent.host, "адрес": ip}, actor=agent.name,
                     actor_kind="agent", agent_id=agent.id, session=s)
         s.commit()
-        return agent, raw
+        agent_id = agent.id
+    from . import live
+    live.drop(agent_id)  # the replaced computer's token is revoked: its open live channel goes with it
+    return agent, raw
 
 
 def bearer(headers) -> str:

@@ -17,7 +17,7 @@
   <span class="chip-hx"><i class="hx-mark"></i>выключен</span>
 </div>
 <div class="hive" role="list" aria-label="Люди с агентами">
-  {% for row in cells|batch(4) %}
+  {% for row in cells|batch(3) %}
   <div class="hive-row{{ ' odd' if loop.index is even }}">
   {% for c in row %}
   <form method="post" action="/agents/swarm/{{ c.id }}" role="listitem">
