@@ -12,7 +12,7 @@ import { openMenu, toast } from './ui.js';
 import { SwarmPanel } from './swarm.js';
 import { ensureLoaded } from './session-load.mjs';
 import { reserveSend, releaseSend } from './send-lock.mjs';
-import { cellsAfter, liveLine } from './combs.mjs';
+import { applyAllowed, liveLine } from './combs.mjs';
 
 const api = window.sysai;
 const $ = (id) => document.getElementById(id);
@@ -1223,11 +1223,8 @@ function wire() {
 // принёс новый документ доступов (`swarm:changed`), чтобы включённые соты появлялись без перезапуска окна.
 function refreshSwarm() {
   return api.swarm.allowed().then((allowed) => {
-    swarmPanel.allowed = allowed && typeof allowed === 'object' ? allowed : { on: false, cells: 0 };
-    // новый предел сот: ползунок и число в панели следуют за ним без перезапуска окна
-    swarmPanel.cellsWanted = cellsAfter(swarmPanel.cellsWanted, swarmPanel.allowed);
-    composer.updateSwarm({ on: Boolean(allowed && allowed.on), busy: swarmPanel.busy });
-    if (!swarmPanel.el.hidden && !swarmPanel.busy) swarmPanel.draw();
+    // новое разрешение: панель, число сот под новый предел (выбор человека цел), значок и перерисовка — combs.mjs
+    applyAllowed(swarmPanel, composer, allowed);
   }).catch((e) => {
     // не молча: непрочитанный документ доступов иначе выглядит ровно как «соты выключены» (страница → журнал окна)
     console.error('разрешение на соты не прочитано:', e && e.message ? e.message : e);

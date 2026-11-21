@@ -1414,7 +1414,7 @@ test('соты: новый документ доступов в state.json — �
 
 // Новое разрешение роя и строка о живом канале посчитаны в renderer/js/combs.mjs: окно только рисует.
 test('соты: новый предел из доступов меняет число сот в панели, а меню не молчит про канал', async () => {
-  const { cellsAfter, liveLine } = await import('../renderer/js/combs.mjs');
+  const { cellsAfter, liveLine, applyAllowed } = await import('../renderer/js/combs.mjs');
   assert.equal(cellsAfter(16, { cells: 8 }), 8, 'предел уменьшили — панель не просит больше разрешённого');
   assert.equal(cellsAfter(6, { cells: 12 }), 6, 'предел вырос — выбор человека на месте');
   assert.equal(cellsAfter(undefined, { cells: 12 }), 12, 'выбора не было — весь предел');
@@ -1423,6 +1423,30 @@ test('соты: новый предел из доступов меняет чи�
   assert.match(liveLine({ liveUp: false, liveError: 'нет пакета websockets' }), /не держится: нет пакета/);
   assert.match(liveLine({ liveUp: false }), /по пульсу/);
   assert.match(liveLine(null), /не прочитано/, 'состояние не прочиталось — это не «канал в порядке»');
+
+  // то, что делает окно на новый документ доступов: панель, значок и перерисовка — на заглушках
+  const icon = [];
+  const composer = { updateSwarm: (s) => icon.push(s) };
+  let drawn = 0;
+  const panel = { allowed: { on: false, cells: 0 }, cellsWanted: 8, cellsChosen: 12, busy: false,
+    el: { hidden: false }, draw: () => { drawn += 1; } };
+  applyAllowed(panel, composer, { on: true, cells: 8, at: 4 });
+  assert.equal(panel.allowed.cells, 8, 'панель взяла новое разрешение');
+  assert.equal(panel.cellsWanted, 8, 'предел уменьшили — панель просит не больше него');
+  assert.equal(panel.cellsChosen, 12, 'а выбор человека не перезаписан');
+  assert.deepEqual(icon.at(-1), { on: true, busy: false }, 'значок сот появился без перезапуска');
+  assert.equal(drawn, 1, 'открытая панель перерисована');
+  applyAllowed(panel, composer, { on: true, cells: 16, at: 4 });
+  assert.equal(panel.cellsWanted, 12, 'предел снова вырос — вернулся выбор человека');
+  panel.el.hidden = true;
+  applyAllowed(panel, composer, { on: false, cells: 16 });
+  assert.deepEqual(icon.at(-1), { on: false, busy: false }, 'соты выключили — значок ушёл');
+  assert.equal(drawn, 2, 'закрытая панель не рисуется зря');
+  // рой идёт — панель не перерисовывается из-под работающих сот
+  Object.assign(panel, { busy: true, el: { hidden: false } });
+  applyAllowed(panel, composer, { on: true, cells: 16 });
+  assert.equal(drawn, 2);
+  assert.deepEqual(icon.at(-1), { on: true, busy: true });
 });
 
 test('обновление: окно знает, держится ли живой канал и почему нет', () => {
