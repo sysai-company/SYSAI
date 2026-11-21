@@ -1468,12 +1468,26 @@ test('a new project is made with the scope the person chose, and the scope skips
     assert.match(pr.create, /только экраны/);
     assert.match(pr.create, /«Программа ПЛК» и «Компиляция» пропущены/);
     assert.match(pr.create, /продолжай с этапа «Экраны»/);
+    // the route the request lists is the scope's route: no PLC program and no build for «только экраны»
+    const route = (text) => text.slice(text.indexOf('Иди по этапам'), text.indexOf('Среда —'));
+    assert.doesNotMatch(route(pr.create), /программа ПЛК на ST|me_build|plc_project_build/, '«только экраны» не ведёт через ПЛК');
+    assert.match(route(pr.create), /экраны панели/);
 
     const plc = await pj.create('Насосная', 'plc');
     assert.deepEqual(plc.pipeline.stages.filter((s) => s.skipped).map((s) => s.stage), ['hmi']);
     assert.match(projectPrompts(plc).create, /только программу ПЛК/);
+    assert.doesNotMatch(route(projectPrompts(plc).create), /экраны панели|pic-index/, '«только ПЛК» не ведёт через экраны');
+    assert.match(route(projectPrompts(plc).create), /me_build/);
+    assert.match(route(projectPrompts(full).create), /программа ПЛК на ST.*экраны панели/s, 'полный проект — весь путь');
     await assert.rejects(pj.create('Линия 2', 'screens'), /нет такого объёма/);
     assert.equal(fs.existsSync(pj.dir('Линия 2')), false, 'папка не создаётся при неверном объёме');
+    // a name of Object.prototype is not a scope: refused at creation, and in a pipeline.json it means the whole project
+    for (const bad of ['constructor', 'toString', '__proto__']) {
+      await assert.rejects(pj.create(`Линия ${bad}`, bad), /нет такого объёма/, bad);
+      fs.writeFileSync(path.join(plc.path, 'pipeline.json'), JSON.stringify({ facts: { scope: bad } }));
+      assert.equal(projectPipeline(plc.path).scope, 'full', bad);
+    }
+    assert.equal((await pj.list()).projects.length, 3, 'один странный pipeline.json не роняет список проектов');
     // a project of the past has no scope: it is the whole project, nothing skipped
     fs.writeFileSync(path.join(full.path, 'pipeline.json'), JSON.stringify({ stages: { materials: { state: 'done' } }, facts: {} }));
     assert.equal(projectPipeline(full.path).next, 'decisions');
