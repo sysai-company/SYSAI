@@ -817,7 +817,8 @@ test('projects: a folder per project — create, drop materials in, what is insi
   fs.writeFileSync(path.join(made.path, 'docs', 'Руководство.docx'), 'x');
   const going = await pj.info(made.name);
   assert.deepEqual(going.pipeline.stages.map((s) => s.state), ['done', 'done', 'work', 'todo', 'todo', 'todo']);
-  assert.deepEqual(going.pipeline.facts, { controller: 'TM241CE40R', panel: 'cMT3072X', resolution: '1024×600', link: 'opcua', link_title: 'OPC UA' });
+  assert.deepEqual(going.pipeline.facts, { controller: 'TM241CE40R', panel: 'cMT3072X', resolution: '1024×600', link: 'opcua', link_title: 'OPC UA',
+    scope_title: 'Проект полностью' });
   assert.equal(going.pipeline.next, 'plc');
   assert.deepEqual(going.docs.map((f) => f.rel), ['docs/Руководство.docx']);
   assert.deepEqual(going.other, []); // pipeline.json is the window's own, not a file of the project
@@ -1476,6 +1477,149 @@ test('a project is erased together with its materials on request', async () => {
   assert.deepEqual((await pj.list()).projects, []);
   await assert.rejects(() => pj.remove('Достоево', 'erase'), /нет такого проекта/, 'второй раз — честная ошибка');
   await assert.rejects(() => pj.remove('../SYSAI Проекты', 'erase'), /нет такого проекта|названии/, 'за папку проектов не выйти');
+});
+
+// ---------------------------------------------------------------- объём проекта, дерево решений, компиляция
+test('a new project is made with the scope the person chose, and the scope skips its stages', async () => {
+  const root = tmp();
+  try {
+    const pj = new Projects(path.join(root, 'Проекты'));
+    const full = await pj.create('Линия 1');
+    assert.equal(full.pipeline.scope, 'full', 'без выбора — проект полностью');
+    assert.deepEqual(full.pipeline.stages.filter((s) => s.skipped), []);
+
+    const hmi = await pj.create('Шкаф СП-2', 'hmi');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(hmi.path, 'pipeline.json'), 'utf8')).facts, { scope: 'hmi' },
+      'объём лежит в pipeline.json — там его читает plc_stage_update');
+    assert.equal(hmi.pipeline.scope, 'hmi');
+    assert.equal(hmi.pipeline.facts.scope_title, 'Только экраны');
+    assert.deepEqual(hmi.pipeline.stages.filter((s) => s.skipped).map((s) => s.stage), ['plc', 'build']);
+    assert.equal(hmi.pipeline.started, false, 'записанный объём — ещё не начатая работа');
+    assert.deepEqual(hmi.other, [], 'pipeline.json — файл окна, не проекта');
+    // the agent closes the decisions: the next stage is the screens, not the PLC program the scope left out
+    fs.writeFileSync(path.join(hmi.path, 'pipeline.json'), JSON.stringify({ stages: { materials: { state: 'done' }, decisions: { state: 'done' } },
+      facts: { scope: 'hmi', panel: 'cMT3072X', language: 'st' } }));
+    const going = projectPipeline(hmi.path);
+    assert.equal(going.next, 'hmi');
+    assert.equal(going.facts.language_title, 'ST');
+    assert.deepEqual((await pj.list()).projects.find((p) => p.name === 'Шкаф СП-2').stages,
+      ['done', 'done', 'skip', 'skip', 'todo', 'todo'], 'в списке проект показывает пропущенные этапы пропущенными');
+    const pr = projectPrompts({ ...(await pj.info('Шкаф СП-2')), pipeline: going });
+    assert.match(pr.create, /только экраны/);
+    assert.match(pr.create, /«Программа ПЛК» и «Компиляция» пропущены/);
+    assert.match(pr.create, /продолжай с этапа «Экраны»/);
+    // the route the request lists is the scope's route: no PLC program and no build for «только экраны»
+    const route = (text) => text.slice(text.indexOf('Иди по этапам'), text.indexOf('Среда —'));
+    assert.doesNotMatch(route(pr.create), /программа ПЛК на ST|me_build|plc_project_build/, '«только экраны» не ведёт через ПЛК');
+    assert.match(route(pr.create), /экраны панели/);
+
+    const plc = await pj.create('Насосная', 'plc');
+    assert.deepEqual(plc.pipeline.stages.filter((s) => s.skipped).map((s) => s.stage), ['hmi']);
+    assert.match(projectPrompts(plc).create, /только программу ПЛК/);
+    assert.doesNotMatch(route(projectPrompts(plc).create), /экраны панели|pic-index/, '«только ПЛК» не ведёт через экраны');
+    assert.match(route(projectPrompts(plc).create), /me_build/);
+    assert.match(route(projectPrompts(full).create), /программа ПЛК на ST.*экраны панели/s, 'полный проект — весь путь');
+    await assert.rejects(pj.create('Линия 2', 'screens'), /нет такого объёма/);
+    assert.equal(fs.existsSync(pj.dir('Линия 2')), false, 'папка не создаётся при неверном объёме');
+    // a name of Object.prototype is not a scope: refused at creation, and in a pipeline.json it means the whole project
+    for (const bad of ['constructor', 'toString', '__proto__']) {
+      await assert.rejects(pj.create(`Линия ${bad}`, bad), /нет такого объёма/, bad);
+      fs.writeFileSync(path.join(plc.path, 'pipeline.json'), JSON.stringify({ facts: { scope: bad } }));
+      assert.equal(projectPipeline(plc.path).scope, 'full', bad);
+    }
+    assert.equal((await pj.list()).projects.length, 3, 'один странный pipeline.json не роняет список проектов');
+    // a project of the past has no scope: it is the whole project, nothing skipped
+    fs.writeFileSync(path.join(full.path, 'pipeline.json'), JSON.stringify({ stages: { materials: { state: 'done' } }, facts: {} }));
+    assert.equal(projectPipeline(full.path).next, 'decisions');
+    assert.equal(projectPipeline(full.path).scope, 'full');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the decisions tree shows what was chosen and what follows, and never makes a value up', async () => {
+  const { decisions, compileCard } = await import('../renderer/js/decisions.mjs');
+  const root = tmp();
+  try {
+    const dir = path.join(root, 'p');
+    fs.mkdirSync(dir);
+    const write = (stages, facts) => fs.writeFileSync(path.join(dir, 'pipeline.json'), JSON.stringify({ stages, facts }));
+    const openers = [{ id: 'me', title: 'EcoStruxure Machine Expert', kind: 'plc', file: 'plc/E.project' },
+      { id: 'easybuilder', title: 'EasyBuilder Pro', kind: 'hmi', file: 'hmi/E.cmtp' }];
+    const flat = (r) => [r, ...r.children.flatMap(flat)];
+    const by = (r, key) => flat(r).find((x) => x.key === key);
+
+    // nothing decided yet: every decision says «не выбран» and names its question; the scope is the whole project
+    write({}, { scope: 'full' });
+    let pl = projectPipeline(dir);
+    let tree = decisions(pl, apps.environment(pl.facts, openers));
+    assert.equal(tree.value, 'Проект полностью');
+    for (const key of ['controller', 'panel', 'link', 'style', 'language']) {
+      assert.equal(by(tree, key).value, 'не выбран', key);
+      assert.equal(by(tree, key).ask, key);
+    }
+    assert.equal(by(tree, 'plc_program').value, '', 'программа не угадывается без контроллера');
+
+    // decided: the controller brings its program and the languages it accepts; the link says why
+    write({ materials: { state: 'done' }, decisions: { state: 'done' }, plc: { state: 'done' } },
+      { scope: 'full', controller: 'TM241CE40R', panel: 'cMT3072X', resolution: [1024, 600], link: 'opcua', style: 'ОПО' });
+    pl = projectPipeline(dir);
+    const env = apps.environment(pl.facts, openers);
+    assert.deepEqual(env.plc.writes, ['st'], 'Machine Expert: генератор пишет только ST');
+    assert.match(env.plc.languageNote, /LD для Machine Expert пока не генерируется/);
+    tree = decisions(pl, env, ['Картинки ОПО']);
+    assert.deepEqual(tree.children.map((r) => r.key), ['controller', 'panel', 'link', 'build', 'docs']);
+    assert.deepEqual(by(tree, 'controller').children.map((r) => [r.key, r.value]),
+      [['plc_program', 'EcoStruxure Machine Expert'], ['language', 'не выбран'], ['style', 'ОПО']],
+      'Machine Expert умеет два языка — язык не подставляется, а спрашивается');
+    assert.equal(by(tree, 'panel').value, 'cMT3072X · 1024×600');
+    assert.deepEqual(by(tree, 'panel').children.map((r) => r.value), ['EasyBuilder Pro', 'Картинки ОПО']);
+    assert.equal(by(tree, 'link').value, 'OPC UA');
+    assert.match(by(tree, 'link').why, /переменные по именам/);
+    assert.equal(by(tree, 'build').value, 'не начата');
+    // Haiwell has one language and the generator writes it: nothing to ask
+    const hw = apps.environment({ controller: 'Haiwell S16' }, [{ id: 'hawell', title: 'Haiwell Happy', kind: 'plc', file: 'hawell/program.il' }]);
+    assert.equal(by(decisions({ ...pl, facts: { ...pl.facts, controller: 'Haiwell S16' } }, hw), 'language').value, 'LD');
+
+    // the compilation card: there while the build is the stage in hand, with the program of the controller to open
+    assert.deepEqual(compileCard(pl, env), { state: 'todo', program: 'EcoStruxure Machine Expert',
+      open: { id: 'me', title: 'EcoStruxure Machine Expert', file: 'plc/E.project' } });
+    write({ materials: { state: 'done' }, decisions: { state: 'done' }, plc: { state: 'done' }, build: { state: 'done' } }, { scope: 'full' });
+    assert.equal(compileCard(projectPipeline(dir), env), null, 'скомпилировано — карточки нет');
+    write({ materials: { state: 'done' } }, { scope: 'full' });
+    assert.equal(compileCard(projectPipeline(dir), env), null, 'до программы — рано');
+    write({ materials: { state: 'done' }, decisions: { state: 'done' } }, { scope: 'hmi', panel: 'cMT3072X' });
+    pl = projectPipeline(dir);
+    assert.equal(compileCard(pl, env), null, '«только экраны» — компиляции нет');
+    tree = decisions(pl, apps.environment(pl.facts, openers));
+    assert.deepEqual(tree.children.map((r) => r.key), ['controller', 'panel', 'link', 'docs']);
+    assert.deepEqual(by(tree, 'controller').children.map((r) => r.key), ['plc_program'], 'без ПЛК — без языка и стиля');
+    const failing = { ...pl, stages: pl.stages.map((s) => (s.stage === 'build' ? { ...s, skipped: false, state: 'problem' } : s)) };
+    assert.deepEqual(compileCard(failing, {}), { state: 'problem', program: 'среда контроллера', open: null }, 'файла нет — открывать нечего');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the compile answers and the unanswered decisions go to the agent as requests', async () => {
+  const root = tmp();
+  try {
+    const pj = new Projects(path.join(root, 'Проекты'));
+    const info = await pj.create('Элеватор');
+    const pr = projectPrompts(info);
+    assert.match(pr.compiled, /Да, окей/);
+    assert.match(pr.compiled, /plc_stage_update build done/);
+    assert.match(pr.compileErrors, /не прошла/);
+    assert.match(pr.compileErrors, /problem/);
+    assert.match(pr.compileErrors, /me_build/);
+    for (const key of ['scope', 'controller', 'panel', 'link', 'language', 'style']) {
+      assert.ok(pr.decide[key].includes(info.path) && /карточкой/.test(pr.decide[key]), key);
+    }
+    assert.match(pr.decide.language, /LD для него пока не генерируется/, 'вопрос языка честен про LD');
+    assert.match(pr.decide.link, /plc_link/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------- «где и что будет»
