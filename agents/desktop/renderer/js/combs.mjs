@@ -21,3 +21,31 @@ export function rowsOf(count, per) {
 
 // Ряд нечётный (второй, четвёртый…) — его сдвигаем на полсоты: ряды сцепляются гранями, как настоящие соты.
 export const isOdd = (index) => index % 2 === 1;
+
+// Новое разрешение роя (синхронизатор принёс документ доступов): сколько сот просить после него. `chosen` —
+// то, что человек выбрал ползунком (не выбирал — весь предел); результат не больше нового предела и не меньше 4
+// (та же вилка, что у ползунка панели). Сам выбор не меняется: предел снова вырос — вернётся и он.
+export function cellsAfter(chosen, allowed) {
+  const cap = Math.max(4, Math.min(Number(allowed && allowed.cells) || 4, 40));
+  const w = Math.floor(Number(chosen));
+  return Number.isFinite(w) && w > 0 ? Math.max(4, Math.min(w, cap)) : cap;
+}
+
+// Разрешение на соты прочитано заново: панель берёт его, число сот следует за пределом (выбор человека —
+// `panel.cellsChosen` — не трогается), значок в композере выставляется, открытая и не занятая панель перерисовывается.
+// Без DOM: panel и composer — любые объекты с этими полями, так её проверяет юнит-тест.
+export function applyAllowed(panel, composer, allowed) {
+  panel.allowed = allowed && typeof allowed === 'object' ? allowed : { on: false, cells: 0 };
+  panel.cellsWanted = cellsAfter(panel.cellsChosen, panel.allowed);
+  composer.updateSwarm({ on: Boolean(panel.allowed.on), busy: panel.busy });
+  if (panel.el && !panel.el.hidden && !panel.busy) panel.draw();
+}
+
+// Строка меню «Ещё» о живом канале. `status` — ответ updates.status, null — прочесть состояние не удалось:
+// это тоже говорится, иначе меню молчит так же, как когда канал держится. "" — канал держится.
+export function liveLine(status) {
+  if (!status || typeof status !== 'object') return 'состояние живого канала не прочитано';
+  if (status.liveUp) return '';
+  const why = String(status.liveError || '').trim();
+  return `живой канал не держится: ${why || 'работаем по пульсу'}`;
+}

@@ -14,6 +14,7 @@ export class SwarmPanel {
     this.state = null;
     this.picked = null;
     this.cellsWanted = 8;
+    this.cellsChosen = null; // что выбрал человек ползунком: новый предел из доступов его не стирает
     this.minutes = 5;
     this.note = '';
 
@@ -134,7 +135,7 @@ export class SwarmPanel {
       q.value = String(this.questionOf() || '').trim();
       const cells = h('input', { type: 'range', min: '4', max: String(Math.max(4, this.allowed.cells)), step: '1', value: String(this.cellsWanted) });
       const num = h('b', { class: 'comb-num', text: String(this.cellsWanted) });
-      cells.addEventListener('input', () => { this.cellsWanted = Number(cells.value); num.textContent = cells.value; });
+      cells.addEventListener('input', () => { this.cellsWanted = Number(cells.value); this.cellsChosen = this.cellsWanted; num.textContent = cells.value; });
       this.box.append(
         h('p', { class: 'swarm-text', text: `Разрешение профиля: до ${this.allowed.cells} сот. Каждая сота — отдельный агент со своей частью работы; в конце арбитр сведёт ответы и назовёт спорные.` }),
         h('div', { class: 'swarm-row' }, h('label', { class: 'swarm-label', text: 'Задача' }), q),

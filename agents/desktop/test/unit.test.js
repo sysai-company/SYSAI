@@ -1377,6 +1377,89 @@ test('обновление: новая сборка в state.json — окно �
   assert.equal(updates.offerKey({}), '');
 });
 
+test('соты: новый документ доступов в state.json — окно переспрашивает рой сразу, без перезапуска', () => {
+  const home = tmp();
+  const file = path.join(home, 'state.json');
+  const write = (s) => fs.writeFileSync(file, JSON.stringify(s));
+  write({ access_sha: 'a'.repeat(64), offer: { version: '0.4.15', build: 'b' } });
+  const ticks = [];
+  const timer = { set: (fn) => { ticks.push(fn); return 3; }, clear: () => {} };
+  const heard = [];
+  updates.watch({ home, key: updates.accessKey, changed: (k) => heard.push(k), timer });
+  ticks[0]();
+  assert.deepEqual(heard, [], 'документ, что был при открытии, окно уже прочло');
+  write({ access_sha: 'a'.repeat(64), offer: { version: '0.4.16', build: 'c' } });
+  ticks[0]();
+  assert.deepEqual(heard, [], 'новая сборка — не новость для сот');
+  write({ access_sha: 'b'.repeat(64), offer: { version: '0.4.16', build: 'c' } });
+  ticks[0]();
+  ticks[0]();
+  assert.equal(heard.length, 1, 'администратор включил соты: синхронизатор принёс новый документ — один раз');
+  assert.equal(updates.accessKey({}), '');
+
+  // ПК без документа доступов при запуске окна: первый проверенный документ — тоже новость
+  const fresh = tmp();
+  const freshFile = path.join(fresh, 'state.json');
+  fs.writeFileSync(freshFile, '{}');
+  const freshTicks = [];
+  const firstHeard = [];
+  updates.watch({ home: fresh, key: updates.accessKey, changed: (k) => firstHeard.push(k),
+    timer: { set: (fn) => { freshTicks.push(fn); return 4; }, clear: () => {} } });
+  freshTicks[0]();
+  assert.deepEqual(firstHeard, [], 'документа нет — не новость');
+  fs.writeFileSync(freshFile, JSON.stringify({ access_sha: 'c'.repeat(64) }));
+  freshTicks[0]();
+  assert.deepEqual(firstHeard, ['c'.repeat(64)], 'первый документ доступов доставлен — окно переспрашивает соты');
+});
+
+// Новое разрешение роя и строка о живом канале посчитаны в renderer/js/combs.mjs: окно только рисует.
+test('соты: новый предел из доступов меняет число сот в панели, а меню не молчит про канал', async () => {
+  const { cellsAfter, liveLine, applyAllowed } = await import('../renderer/js/combs.mjs');
+  assert.equal(cellsAfter(16, { cells: 8 }), 8, 'предел уменьшили — панель не просит больше разрешённого');
+  assert.equal(cellsAfter(6, { cells: 12 }), 6, 'предел вырос — выбор человека на месте');
+  assert.equal(cellsAfter(undefined, { cells: 12 }), 12, 'выбора не было — весь предел');
+  assert.equal(cellsAfter(2, { cells: 0 }), 4, 'не меньше 4, как у ползунка');
+  assert.equal(liveLine({ liveUp: true, liveError: '' }), '', 'канал держится — говорить нечего');
+  assert.match(liveLine({ liveUp: false, liveError: 'нет пакета websockets' }), /не держится: нет пакета/);
+  assert.match(liveLine({ liveUp: false }), /по пульсу/);
+  assert.match(liveLine(null), /не прочитано/, 'состояние не прочиталось — это не «канал в порядке»');
+
+  // то, что делает окно на новый документ доступов: панель, значок и перерисовка — на заглушках
+  const icon = [];
+  const composer = { updateSwarm: (s) => icon.push(s) };
+  let drawn = 0;
+  const panel = { allowed: { on: false, cells: 0 }, cellsWanted: 8, cellsChosen: 12, busy: false,
+    el: { hidden: false }, draw: () => { drawn += 1; } };
+  applyAllowed(panel, composer, { on: true, cells: 8, at: 4 });
+  assert.equal(panel.allowed.cells, 8, 'панель взяла новое разрешение');
+  assert.equal(panel.cellsWanted, 8, 'предел уменьшили — панель просит не больше него');
+  assert.equal(panel.cellsChosen, 12, 'а выбор человека не перезаписан');
+  assert.deepEqual(icon.at(-1), { on: true, busy: false }, 'значок сот появился без перезапуска');
+  assert.equal(drawn, 1, 'открытая панель перерисована');
+  applyAllowed(panel, composer, { on: true, cells: 16, at: 4 });
+  assert.equal(panel.cellsWanted, 12, 'предел снова вырос — вернулся выбор человека');
+  panel.el.hidden = true;
+  applyAllowed(panel, composer, { on: false, cells: 16 });
+  assert.deepEqual(icon.at(-1), { on: false, busy: false }, 'соты выключили — значок ушёл');
+  assert.equal(drawn, 2, 'закрытая панель не рисуется зря');
+  // рой идёт — панель не перерисовывается из-под работающих сот
+  Object.assign(panel, { busy: true, el: { hidden: false } });
+  applyAllowed(panel, composer, { on: true, cells: 16 });
+  assert.equal(drawn, 2);
+  assert.deepEqual(icon.at(-1), { on: true, busy: true });
+});
+
+test('обновление: окно знает, держится ли живой канал и почему нет', () => {
+  const home = tmp();
+  fs.writeFileSync(path.join(home, 'state.json'), JSON.stringify({ live_up: false,
+    live_error: 'SYSAI не принял токен агента для живого канала — работаем по пульсу' }));
+  const st = updates.status({ home });
+  assert.equal(st.liveUp, false);
+  assert.match(st.liveError, /не принял токен/);
+  fs.writeFileSync(path.join(home, 'state.json'), JSON.stringify({ live_up: true, live_error: '' }));
+  assert.deepEqual([updates.status({ home }).liveUp, updates.status({ home }).liveError], [true, '']);
+});
+
 test('обновление: «установить» только просит синхронизатор', () => {
   const home = tmp();
   assert.equal(updates.wake(home).asking, false, 'цикла нет — будить некого');
