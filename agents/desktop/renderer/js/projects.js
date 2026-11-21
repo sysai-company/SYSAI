@@ -343,6 +343,9 @@ export class ProjectsView {
   _decisions(info, planned) {
     const box = h('div', { class: 'pj-tree', hidden: true });
     planned.then((plan) => {
+      // The plan failed: the where-block below says why and offers to retry. An empty environment would draw
+      // every row as «не выбран» — a lie about the project, not a state of it.
+      if (!plan || plan.error) return;
       const pictures = (info.sources || []).filter((x) => x.role === 'picture-library').map((x) => basename(x.path));
       const root = decisions(info.pipeline, (plan && plan.environment) || {}, pictures);
       const decide = (info.prompts && info.prompts.decide) || {};
@@ -370,6 +373,9 @@ export class ProjectsView {
   _compile(info, planned) {
     const box = h('div', { class: 'pj-compile', hidden: true });
     planned.then((plan) => {
+      // The plan failed: there is no environment to lean on. An empty one would claim the project file
+      // does not exist yet — the reason lives in the where-block, with a way to retry.
+      if (!plan || plan.error) return;
       const card = compileCard(info.pipeline, (plan && plan.environment) || {});
       if (!card) return;
       const send = (what) => this.ask(what);

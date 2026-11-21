@@ -2035,4 +2035,12 @@ test('a failure of the environment plan is shown, not swallowed', () => {
   assert.match(planCall, /catch\(\(err\) =>/, 'у запроса есть обработчик ошибки');
   assert.match(planCall, /toast\(/, 'ошибка видна человеку тостом, а не только в консоли');
   assert.match(js, /plan\.error/, 'блок «Где и что будет» показывает причину, а не молчит');
+  // Блоки, что читают план, обязаны проверить plan.error раньше, чем превращать его в пустое окружение:
+  // иначе дерево рисует все строки как «не выбран», а карточка компиляции врёт, что файла проекта нет.
+  for (const block of ['_decisions(info, planned)', '_compile(info, planned)']) {
+    const at = js.indexOf(block);
+    assert.ok(at >= 0, block);
+    const body = js.slice(at, js.indexOf('return box;', at));
+    assert.match(body, /plan\.error\) return/, `${block}: при ошибке плана блок не рисуется по пустому окружению`);
+  }
 });
