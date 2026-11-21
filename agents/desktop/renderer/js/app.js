@@ -1255,6 +1255,8 @@ async function main() {
   // «Ничего не прилетало» больше не должно быть молчаливым: спрашиваем SYSAI при запуске и раз в полчаса.
   checkUpdates(false);
   setInterval(() => checkUpdates(false), 30 * 60 * 1000);
+  // а когда новую сборку услышал синхронизатор (пульс или живой канал) — сразу, не дожидаясь получаса
+  if (api.updates.onOffered) api.updates.onOffered(() => checkUpdates(false));
   onAcpState(await api.acp.state().catch(() => ({ state: 'error', message: 'нет связи с основным процессом окна' })));
   api.ready();
 }

@@ -316,28 +316,69 @@ details[open] > .ac-head { border-bottom: 1px solid var(--line); border-radius: 
   color: var(--muted); border-top: 1px solid var(--line); background: var(--bg2); }
 .inst-foot .i { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.7; flex: none; }
 
-/* Соты — рой агентов: настройка профиля и её большой предпросмотр в настройках */
-.combs .comb-wrap { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
-.comb { display: grid; grid-template-columns: repeat(8, 18px); gap: 4px; flex: none; padding: 4px 0; }
-.comb .cell { width: 18px; height: 16px; background: var(--line);
+/* Соты — рой агентов: схема в профиле и в карточке человека. Зелёные работают разом, светлые ждут, тусклые — запас;
+   нечётные ряды сдвинуты на полсоты, и сетка читается как соты, а не как таблица. swarm.js перерисовывает её по ползункам. */
+.combs .comb-wrap { display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+.hx-mark, .hx-mini i { clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.comb { display: grid; grid-template-columns: repeat(8, 22px); gap: 5px 4px; flex: none; padding: 6px 13px 6px 0; }
+.comb .cell { width: 22px; height: 24px; background: var(--line); transition: background .2s, box-shadow .2s;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
-.comb .cell.on { background: color-mix(in srgb, var(--clay) 65%, transparent); }
-.comb-side { min-width: 240px; flex: 1 1 260px; }
-@media (max-width: 560px) { .comb { grid-template-columns: repeat(6, 16px); } .comb .cell { width: 16px; height: 14px; } }
+.comb .cell:nth-child(16n+9), .comb .cell:nth-child(16n+10), .comb .cell:nth-child(16n+11), .comb .cell:nth-child(16n+12),
+.comb .cell:nth-child(16n+13), .comb .cell:nth-child(16n+14), .comb .cell:nth-child(16n+15), .comb .cell:nth-child(16n+16) { transform: translateX(13px); }
+.comb .cell.on { background: color-mix(in srgb, var(--green) 35%, var(--line)); }
 .comb .cell.run { background: var(--green); }
+.comb-side { min-width: 240px; flex: 1 1 260px; }
+.comb-range { margin: 12px 0; display: flex; flex-direction: column; gap: 4px; }
+.comb-range .f { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; margin: 0; }
+.comb-range .f input[type=number] { width: 84px; }
+.comb-range input[type=range] { width: 100%; accent-color: var(--green); margin: 2px 0; }
+.comb-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+.comb-legend span { display: inline-flex; gap: 6px; align-items: center; }
+.hx-mark { width: 10px; height: 11px; display: inline-block; background: var(--line2); }
+.hx-mark.on { background: color-mix(in srgb, var(--green) 35%, var(--line)); } .hx-mark.run { background: var(--green); }
+.comb-live { display: inline-flex; align-items: center; gap: 7px; margin-left: 12px; color: var(--soft); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent); }
+.live-dot.away { background: var(--line2); box-shadow: none; }
+@media (max-width: 560px) {
+  .comb { grid-template-columns: repeat(6, 22px); }
+  .comb .cell { transform: none !important; }
+  .comb .cell:nth-child(12n+7), .comb .cell:nth-child(12n+8), .comb .cell:nth-child(12n+9), .comb .cell:nth-child(12n+10),
+  .comb .cell:nth-child(12n+11), .comb .cell:nth-child(12n+12) { transform: translateX(13px) !important; }
+  .comb-live { margin: 8px 0 0; display: flex; }
+}
 
-/* «Сеть агентов → Соты»: сота на человека; нажатие включает или выключает ему рой */
-.hive { display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 4px 0 18px; }
-.hive form { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0; }
-.hive .hx { width: 150px; height: 132px; padding: 16px; border: 0; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 1px; text-align: center; cursor: pointer; color: var(--text); font: inherit; background: var(--card2);
-  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); transition: background .15s; }
-.hive .hx b { font-size: 13.5px; font-weight: 600; line-height: 1.25; }
-.hive .hx .small { color: var(--muted); }
-.hive .hx-st { margin-top: 5px; font-size: 12px; color: var(--muted); }
-.hive .hx.on { background: color-mix(in srgb, var(--green) 22%, var(--card2)); } .hive .hx.on .hx-st { color: var(--green); }
-.hive .hx.off { opacity: .8; } .hive .hx:hover { background: var(--line2); } .hive .hx.on:hover { background: color-mix(in srgb, var(--green) 32%, var(--card2)); }
-.hive .hx.picked b { color: var(--clay); } .hive .hx.picked::after { content: ""; width: 18px; height: 3px; margin-top: 6px; border-radius: 2px; background: var(--clay); }
-.hive .hx:focus-visible { background: var(--line2); }
-.hive .hx-edit { color: var(--muted); } .hive .hx-edit:hover { color: var(--text); }
-@media (max-width: 560px) { .hive .hx { width: 110px; height: 98px; padding: 8px; } .hive .hx b { font-size: 12.5px; } }
+/* «Сеть агентов → Рой агентов»: сота на человека (плоская сверху, ряды вперемежку — настоящие соты); нажатие
+   включает или выключает ему рой. В соте — на связи ли компьютер, и маленькая схема его сот. */
+.hive-sum { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: -6px 0 16px; }
+.chip-hx { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 99px; border: 1px solid var(--line2);
+  font-size: 12.5px; color: var(--soft); }
+.hive { --w: 170px; --h: 146px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; margin: 4px 0 18px; }
+.hive-row { display: flex; gap: 12px; }
+.hive-row.odd { margin-left: calc(var(--w) / 2 + 6px); }
+.hive form { display: flex; flex-direction: column; align-items: center; gap: 3px; margin: 0; }
+.hive .hx { width: var(--w); height: var(--h); padding: 0 28px; border: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 2px; text-align: center; cursor: pointer; color: var(--text); font: inherit;
+  background: linear-gradient(160deg, var(--card2), var(--card)); transition: filter .15s, background .15s;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+.hive .hx:hover, .hive .hx:focus-visible { filter: brightness(1.18); }
+.hive .hx.on { background: linear-gradient(160deg, color-mix(in srgb, var(--green) 34%, var(--card2)), color-mix(in srgb, var(--green) 14%, var(--card))); }
+.hive .hx.off { color: var(--soft); }
+.hive .hx.picked { background: linear-gradient(160deg, color-mix(in srgb, var(--clay) 32%, var(--card2)), color-mix(in srgb, var(--clay) 10%, var(--card))); }
+.hive .hx b { font-size: 12.5px; font-weight: 600; line-height: 1.2; max-width: 118px; }
+/* имя агента переносится, а не обрезается с двух сторон: по центру обрезанный текст читается хуже всего */
+.hive .hx .small { color: var(--muted); font-size: 11px; max-width: 118px; overflow-wrap: anywhere; line-height: 1.25; }
+.hive .hx .live-dot { margin-bottom: 2px; }
+.hx-mini { display: flex; gap: 2px; margin-top: 4px; flex-wrap: wrap; justify-content: center; max-width: 72px; }
+.hx-mini i { width: 7px; height: 8px; display: block; background: var(--line2); }
+.hx-mini i.on { background: color-mix(in srgb, var(--green) 45%, var(--line)); } .hx-mini i.run { background: var(--green); }
+.hive .hx-st { margin-top: 3px; font-size: 11px; color: var(--muted); max-width: 104px; }
+.hive .hx.on .hx-st { color: var(--green); }
+.hive .hx-edit { color: var(--muted); text-decoration: underline dotted; text-underline-offset: 2px; } .hive .hx-edit:hover { color: var(--text); }
+@media (max-width: 760px) {
+  .hive { --w: 112px; --h: 100px; gap: 10px; }
+  .hive-row { flex-wrap: wrap; gap: 10px; } .hive-row.odd { margin-left: 0; }
+  .hive .hx { padding: 0 22px; } .hive .hx b { font-size: 11px; max-width: 70px; }
+  .hive .hx .small { font-size: 10px; max-width: 70px; } .hive .hx-st { font-size: 9.5px; max-width: 70px; }
+  .hx-mini { display: none; }
+}

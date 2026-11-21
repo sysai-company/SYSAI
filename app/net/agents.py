@@ -236,6 +236,8 @@ def revoke(agent_id: int, by: str = "") -> None:
         journal.log("agent.disable", agent.name, {"статус": {"было": before, "стало": "disabled"}, "токенов отозвано": count},
                     actor=by, agent_id=agent.id, session=s)
         s.commit()
+    from . import live
+    live.drop(agent_id)  # the open live channel is closed too, not only the next request refused
 
 
 def enable(agent_id: int, by: str = "", boss: bool = True) -> bool:
@@ -343,7 +345,7 @@ def request_update(agent_ids=None, by: str = "") -> int:
 
 def listing(user: dict | None = None) -> list:
     """Agents with their person, department and access state; a plain user sees only his own."""
-    from . import access
+    from . import access, live
     with SessionLocal() as s:
         q = s.query(NetAgent)
         if user is not None and user.get("role") != "superuser":
@@ -364,5 +366,6 @@ def listing(user: dict | None = None) -> list:
                         "applied_rev": row.applied_rev if row else "", "applied_at": row.applied_at if row else None,
                         "update_rev": int(a.update_rev or 0),
                         # «Рой агентов»: что агент получает и личная ли это настройка — из того же документа, второй раз не собирается
-                        "swarm": doc["rules"]["swarm"], "swarm_own": "swarm" in (doc["overrides"] or {})})
+                        "swarm": doc["rules"]["swarm"], "swarm_own": "swarm" in (doc["overrides"] or {}),
+                        "live": live.connected(a.id)})  # на связи сейчас: изменение дойдёт сразу, а не с пульсом
         return out

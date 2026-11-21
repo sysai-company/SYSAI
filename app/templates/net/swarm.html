@@ -2,7 +2,7 @@
 {% block head %}<link rel="stylesheet" href="{{ asset('net.css') }}">{% endblock %}
 {% block body %}
 <div class="page-h"><div><h1>{{ section }}</h1>
-  <p>Каждая сота — человек с агентом. Нажмите на соту, чтобы включить или выключить рой этому человеку; ниже — сколько у него сот и сколько из них работают одновременно. Агент получит изменение при следующей синхронизации, до 5 минут.</p></div>
+  <p>Сота — человек с агентом. Нажмите на соту, чтобы включить или выключить ему рой; «настроить» — сколько сот и сколько из них работают разом. Компьютер на связи получает изменение сразу, остальные — при следующем пульсе, до 5 минут.</p></div>
   <div class="actions"><a class="btn" href="/agents/access">Доступы</a></div></div>
 {% if msg %}<div class="card note" role="status">{{ msg }}</div>{% endif %}
 {% if error %}<div class="card note warn" role="alert">{{ error }}</div>{% endif %}
@@ -11,40 +11,55 @@
 <section class="card"><h2>Агентов пока нет</h2>
   <p class="muted">Соты появятся, когда сотрудник подключит компьютер. <a href="/agents">Агенты →</a></p></section>
 {% else %}
+<div class="hive-sum" aria-label="Сводка роя">
+  <span class="chip-hx"><i class="hx-mark on"></i>рой включён у {{ on_n }} из {{ cells|length }}</span>
+  <span class="chip-hx"><i class="live-dot{{ '' if live_n else ' away' }}"></i>на связи {{ live_n }}</span>
+  <span class="chip-hx"><i class="hx-mark"></i>выключен</span>
+</div>
 <div class="hive" role="list" aria-label="Люди с агентами">
-  {% for c in cells %}
+  {% for row in cells|batch(4) %}
+  <div class="hive-row{{ ' odd' if loop.index is even }}">
+  {% for c in row %}
   <form method="post" action="/agents/swarm/{{ c.id }}" role="listitem">
     {% if not c.swarm.on %}<input type="hidden" name="on" value="1">{% endif %}
     <input type="hidden" name="cells" value="{{ c.swarm.cells }}"><input type="hidden" name="at" value="{{ c.swarm.at }}">
-    <button class="hx {{ 'on' if c.swarm.on else 'off' }}{{ ' picked' if chosen and chosen.id == c.id }}" data-agent="{{ c.id }}"
-      title="{{ 'Выключить' if c.swarm.on else 'Включить' }} рой: {{ c.user_name }}" aria-pressed="{{ 'true' if c.swarm.on else 'false' }}">
+    <button class="hx {{ 'on' if c.swarm.on else 'off' }}{{ ' picked' if chosen and chosen.id == c.id }}" data-agent="{{ c.id }}" data-live="{{ 1 if c.live else 0 }}"
+      title="{{ 'Выключить' if c.swarm.on else 'Включить' }} рой: {{ c.user_name }} · {{ 'компьютер на связи' if c.live else 'компьютер не на связи' }}" aria-pressed="{{ 'true' if c.swarm.on else 'false' }}">
+      <i class="live-dot{{ '' if c.live else ' away' }}" aria-hidden="true"></i>
       <b>{{ c.user_name }}</b><span class="small">{{ c.name }}</span>
-      <span class="hx-st">{% if c.swarm.on %}включены · {{ c.swarm.cells }} сот · {{ c.swarm.at }} разом{% else %}выключены{% endif %}</span>
+      <span class="hx-mini" aria-hidden="true">{% for i in range([c.swarm.cells, 16]|min) %}<i class="{{ 'run' if c.swarm.on and i < c.swarm.at else ('on' if c.swarm.on else '') }}"></i>{% endfor %}</span>
+      <span class="hx-st">{% if c.swarm.on %}{{ c.swarm.cells }} сот · {{ c.swarm.at }} разом{% else %}выключен{% endif %}</span>
     </button>
     {% if not (chosen and chosen.id == c.id) %}<a class="hx-edit small" href="/agents/swarm?pick={{ c.id }}#pick">настроить</a>{% endif %}
   </form>
+  {% endfor %}
+  </div>
   {% endfor %}
 </div>
 
 {% if chosen %}{% set sw = chosen.swarm %}
 <section class="card combs" id="pick">
   <h2>{{ chosen.user_name }} — {{ chosen.name }}</h2>
-  <form method="post" action="/agents/swarm/{{ chosen.id }}" class="comb-wrap">
+  <form method="post" action="/agents/swarm/{{ chosen.id }}" class="comb-wrap" data-comb>
     <div class="comb" aria-hidden="true">
       {% for i in range(limits[1]) %}<span class="cell{{ ' run' if sw.on and i < sw.at else (' on' if sw.on and i < sw.cells else '') }}"></span>{% endfor %}
     </div>
     <div class="comb-side">
       <div class="net-checks"><label><input type="checkbox" name="on" {{ 'checked' if sw.on }}> рой включён для этого человека</label></div>
-      <div class="ac-fields">
-        <label class="f">Сколько сот ({{ limits[0] }}–{{ limits[1] }}) <input name="cells" type="number" min="{{ limits[0] }}" max="{{ limits[1] }}" step="1" value="{{ sw.cells }}"></label>
-        <label class="f">Одновременно работают <input name="at" type="number" min="1" max="{{ limits[1] }}" step="1" value="{{ sw.at }}"></label>
-      </div>
-      <p class="ac-hint">Зелёные соты работают одновременно, светлые ждут очереди, тусклые — запас. Одновременно не больше, чем сот: лишнее SYSAI срежет.
-        {% if not chosen.swarm_own %}Сейчас — как в профиле «{{ chosen.profile }}»; сохранение сделает эту настройку личной.{% else %}Личная настройка: профиль «{{ chosen.profile }}» её не меняет.{% endif %}</p>
-      <div class="ac-save"><button class="btn primary">Сохранить</button></div>
+      <div class="comb-range"><label class="f">Сколько сот ({{ limits[0] }}–{{ limits[1] }}) <input name="cells" type="number" min="{{ limits[0] }}" max="{{ limits[1] }}" step="1" value="{{ sw.cells }}"></label>
+        <input type="range" data-pair="cells" min="{{ limits[0] }}" max="{{ limits[1] }}" step="1" value="{{ sw.cells }}" aria-label="Сколько сот">
+        <small class="muted">на сколько частей рой делит задачу</small></div>
+      <div class="comb-range"><label class="f">Одновременно работают <input name="at" type="number" min="1" max="{{ limits[1] }}" step="1" value="{{ sw.at }}"></label>
+        <input type="range" data-pair="at" min="1" max="{{ limits[1] }}" step="1" value="{{ sw.at }}" aria-label="Одновременно работают">
+        <small class="muted">не больше, чем сот: остальные ждут очереди</small></div>
+      <div class="comb-legend"><span><i class="hx-mark run"></i>работают разом</span><span><i class="hx-mark on"></i>ждут очереди</span><span><i class="hx-mark"></i>запас</span></div>
+      <p class="ac-hint">{% if not chosen.swarm_own %}Сейчас — как в профиле «{{ chosen.profile }}»; сохранение сделает эту настройку личной.{% else %}Личная настройка: профиль «{{ chosen.profile }}» её не меняет.{% endif %}</p>
+      <div class="ac-save"><button class="btn primary">Сохранить</button>
+        <span class="comb-live small"><i class="live-dot{{ '' if chosen.live else ' away' }}"></i>{{ 'Компьютер на связи — получит сразу' if chosen.live else 'Компьютер не на связи — получит при следующем пульсе' }}</span></div>
     </div>
   </form>
 </section>
 {% endif %}
 {% endif %}
+<script src="{{ asset('swarm.js') }}" defer></script>
 {% endblock %}

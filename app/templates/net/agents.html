@@ -46,7 +46,7 @@
       <td>{{ a.host or '—' }}</td>
       <td class="small">{% if sv or dv %}<div {% if sv and sv != sync_version %}class="net-err" title="SYSAI отдаёт {{ sync_version }}"{% endif %}>синхр. {{ sv or '—' }}</div><div {% if dv and dv != desktop_version %}class="net-err" title="SYSAI отдаёт {{ desktop_version }}"{% endif %}>окно {{ dv or '—' }}</div>{% if old %}<span class="pill amber" title="последняя версия — {{ sync_version }}">обновляется</span>{% endif %}{% else %}<span class="muted">не сообщает</span>{% endif %}</td>
       <td>{{ a.profile }}<div class="small {{ 'net-ok' if a.applied_rev == a.rev else 'muted' }}">{% if a.applied_rev == a.rev %}применены{% elif a.applied_rev %}ждут применения{% else %}ещё не применялись{% endif %}</div></td>
-      <td class="small">{{ net_when(a.last_seen_at) }}</td>
+      <td class="small" title="{{ 'живой канал открыт: изменения и «Обновить» доходят сразу' if a.live else 'живого канала нет: изменения — с пульсом, до 5 минут' }}" data-live="{{ 1 if a.live else 0 }}">{% if a.live %}<span class="pill green">сейчас</span> {% endif %}{{ net_when(a.last_seen_at) }}</td>
       <td class="small">${{ '%.2f'|format(spend.get(a.id, 0)) }}</td>
     </tr>
     {% endfor %}

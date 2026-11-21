@@ -46,16 +46,19 @@
     </fieldset>
 
     <fieldset class="ac-group combs"><legend>{{ sections.swarm }}</legend>
-      <div class="comb-wrap">
+      <div class="comb-wrap" data-comb>
         <div class="comb" aria-hidden="true">
-          {% for i in range(40) %}<span class="cell{{ ' on' if i < r.swarm.cells }}"></span>{% endfor %}
+          {% for i in range(40) %}<span class="cell{{ ' run' if r.swarm.on and i < r.swarm.at else (' on' if r.swarm.on and i < r.swarm.cells else '') }}"></span>{% endfor %}
         </div>
         <div class="comb-side">
           <div class="net-checks"><label><input type="checkbox" name="swarm_on" {{ 'checked' if r.swarm.on }}> соты включены для этого профиля</label></div>
-          <label class="f">Сколько сот <input name="swarm_cells" type="number" min="4" max="40" step="1" value="{{ r.swarm.cells }}">
-            <small class="muted">Столько частей получает рой, когда инженер его запускает: каждая сота — один агент. Ищет — сота пульсирует, нашёл — горит ровно, ошибся — красная, не успел — серая. Включённые соты светлее, остальные — запас на будущее.</small></label>
-          <label class="f">Одновременно работают <input name="swarm_at" type="number" min="1" max="40" step="1" value="{{ r.swarm.at }}">
-            <small class="muted">Сколько сот идут разом, остальные ждут очереди; не больше, чем сот. Каждому человеку отдельно — «Сеть агентов → Соты».</small></label>
+          <div class="comb-range"><label class="f">Сколько сот <input name="swarm_cells" type="number" min="4" max="40" step="1" value="{{ r.swarm.cells }}"></label>
+            <input type="range" data-pair="cells" min="4" max="40" step="1" value="{{ r.swarm.cells }}" aria-label="Сколько сот">
+            <small class="muted">Столько частей получает рой, когда инженер его запускает: каждая сота — один агент. Ищет — сота пульсирует, нашёл — горит ровно, ошибся — красная, не успел — серая.</small></div>
+          <div class="comb-range"><label class="f">Одновременно работают <input name="swarm_at" type="number" min="1" max="40" step="1" value="{{ r.swarm.at }}"></label>
+            <input type="range" data-pair="at" min="1" max="40" step="1" value="{{ r.swarm.at }}" aria-label="Одновременно работают">
+            <small class="muted">Сколько сот идут разом, остальные ждут очереди; не больше, чем сот. Каждому человеку отдельно — «Сеть агентов → Рой агентов».</small></div>
+          <div class="comb-legend"><span><i class="hx-mark run"></i>работают разом</span><span><i class="hx-mark on"></i>ждут очереди</span><span><i class="hx-mark"></i>запас</span></div>
           <p class="ac-hint">Значок сот появляется в окне агента рядом с отправкой и в настройках — крупнее. Права у роя только на чтение: он проверяет и ищет, но не пишет в проекты.</p>
         </div>
       </div>
@@ -190,4 +193,5 @@
 <section class="card">
   <ul class="net-list">{% for e in events %}<li><span class="small muted">{{ net_when(e.at) }}</span> <b>{{ e.target }}</b> · {{ e.actor }}{% if e.summary %} <span class="small muted">{{ e.summary }}</span>{% endif %}</li>{% else %}<li class="muted">Пока пусто.</li>{% endfor %}</ul>
 </section>
+<script src="{{ asset('swarm.js') }}" defer></script>
 {% endblock %}

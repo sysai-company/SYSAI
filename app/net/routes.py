@@ -8,12 +8,12 @@ import weakref
 from urllib.parse import quote
 
 import anyio
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from .. import config, settings_store, storage
 from ..db import Department, Employee, SessionLocal, User
-from . import access, agents, desktop, enabled, files, gateway, hub, hub_bundles, installer, journal, mcp, pictures, soul, spend, trace
+from . import access, agents, desktop, enabled, files, gateway, hub, hub_bundles, installer, journal, live, mcp, pictures, soul, spend, trace
 from .models import NetAgent, NetAgentToken, NetSkill
 
 router = APIRouter()
@@ -304,9 +304,19 @@ async def agents_update(request: Request):
     if scope != "all" and not ids:
         return _back("/agents", error="Отметьте агентов галочками или нажмите «Обновить всех»")
     n = agents.request_update(None if scope == "all" else ids, by=me["username"])
+    now_ = live.poke(None if scope == "all" else ids, "update")
     what = "все агенты" if scope == "all" else "выбранные агенты"
-    return _back("/agents", msg=f"Обновление запрошено: {what} ({n}). Компьютеры поставят последнюю версию "
-                                "при следующем пульсе — до 5 минут")
+    return _back("/agents", msg=f"Обновление отправлено: {what} ({n}). {_on_line(now_, n)}")
+
+
+def _on_line(now_: int, asked: int) -> str:
+    """How many got it at once over the live channel and how many wait for the pulse — said, not promised."""
+    rest = max(0, asked - now_)
+    if not rest:
+        return "Все на связи — ставят сейчас"
+    if not now_:
+        return "Сейчас никто не на связи — получат при следующем пульсе, до 5 минут"
+    return f"На связи {now_} — ставят сейчас; остальные ({rest}) получат при следующем пульсе, до 5 минут"
 
 
 @router.post("/agents/{agent_id:int}/{action}")
@@ -331,8 +341,10 @@ async def agent_action(request: Request, agent_id: int, action: str):
                          "Режим отладки выключен: тексты больше не сохраняются")
         if action == "update":
             agents.request_update([agent_id], by=me["username"])
-            return _back(f"/agents/{agent_id}", msg="Обновление запрошено: компьютер получит его при следующем пульсе "
-                                                    "(до 5 минут) и поставит последнюю версию сам")
+            if live.poke([agent_id], "update"):
+                return _back(f"/agents/{agent_id}", msg="Обновление отправлено: компьютер на связи и ставит последнюю версию сейчас")
+            return _back(f"/agents/{agent_id}", msg="Обновление запрошено: компьютер сейчас не на связи — получит его при "
+                                                    "следующем пульсе (до 5 минут) и поставит последнюю версию сам")
         if action == "delete" and boss:
             agents.delete(agent_id, by=me["username"])
             return _back("/agents", msg=f"Агент {agent.name} удалён")
@@ -343,6 +355,7 @@ async def agent_action(request: Request, agent_id: int, action: str):
             except ValueError:
                 return _back(f"/agents/{agent_id}#access", error="Личные исключения: это не JSON")
             access.set_agent_access(agent_id, _int(form.get("profile_id")), overrides, by=me["username"])
+            live.poke([agent_id], "access")
             with SessionLocal() as s:
                 row = s.get(NetAgent, agent_id)
                 before = {"сотрудник": row.employee_id, "отдел": row.department_id}
@@ -365,8 +378,10 @@ def swarm_page(request: Request, msg: str = "", error: str = "", pick: str = "")
     свои (личные исключения агента, раздел swarm), без правки общего профиля."""
     me = _person(request, admin=True)
     cells = agents.listing(me)  # раздел swarm уже в списке: документ агента собирается один раз
+    live_n = sum(1 for c in cells if c["live"])
+    on_n = sum(1 for c in cells if c["swarm"]["on"])
     chosen = next((c for c in cells if str(c["id"]) == pick), cells[0] if cells else None)
-    return _page(request, "net/swarm.html", cells=cells, chosen=chosen, msg=msg, error=error,
+    return _page(request, "net/swarm.html", cells=cells, chosen=chosen, msg=msg, error=error, live_n=live_n, on_n=on_n,
                  limits=access.SWARM_CELLS, section=access.SECTION_RU["swarm"])
 
 
@@ -379,7 +394,10 @@ async def swarm_save(request: Request, agent_id: int):
     except access.AccessError as exc:
         return _back(f"/agents/swarm?pick={agent_id}", error=str(exc))
     said = (f"рой включён: {got['cells']} сот, разом {got['at']}" if got["on"] else "рой выключен")
-    return _back(f"/agents/swarm?pick={agent_id}", msg=f"Сохранено — {said}. Агент применит при следующей синхронизации")
+    if live.poke([agent_id], "swarm"):
+        return _back(f"/agents/swarm?pick={agent_id}", msg=f"Сохранено — {said}. Компьютер на связи — получил сразу")
+    return _back(f"/agents/swarm?pick={agent_id}", msg=f"Сохранено — {said}. Компьютер сейчас не на связи — применит "
+                                                       "при следующем пульсе")
 
 
 # ============================================================================= pages: access profiles
@@ -433,6 +451,7 @@ async def access_soul(request: Request):
         if key.startswith("dept_name_") and str(name).strip():
             additions[str(name).strip()] = str(form.get("dept_" + key[10:]) or "")
     soul.save(str(form.get("common") or ""), additions, by=me["username"])
+    live.poke(None, "soul")
     return _back("/agents/access#soul", msg="Характер сохранён: агенты получат новый SOUL.md при следующей синхронизации")
 
 
@@ -483,7 +502,9 @@ async def access_save(request: Request, profile_id: int):
                             access.rules_from_form(form), by=me["username"])
     except access.AccessError as exc:
         return _back(f"/agents/access?edit={profile_id}#p{profile_id}", error=str(exc))
-    return _back(f"/agents/access#p{profile_id}", msg="Профиль сохранён: агенты применят его при следующей синхронизации")
+    live.poke(None, "access")  # who has the profile is the documents' business: everyone looks, only they change
+    return _back(f"/agents/access#p{profile_id}", msg="Профиль сохранён: агенты на связи получат его сразу, "
+                                                     "остальные — при следующей синхронизации")
 
 
 # ============================================================================= pages: SYSAI_Hub
@@ -698,6 +719,7 @@ def hub_version_action(request: Request, name: str, version: str, action: str, n
             done = "Версия отправлена на проверку"
         elif action == "publish":
             hub.publish(name, version, me, note)
+            live.poke(None, "hub")
             done = f"Версия {version} опубликована: агенты получат её при следующей синхронизации"
         elif action == "reject":
             hub.reject(name, version, me, note)
@@ -1011,6 +1033,17 @@ async def api_connect(request: Request):
     server = _server(request)
     return {"agent": agent.name, "token": token, "server": server, "config": f"{server}/agents/api/config",
             "mcp": f"{server}/mcp", "gateway": f"{server}/v1", "public_key": access.public_key()}
+
+
+@router.websocket("/agents/api/live")
+async def api_live(ws: WebSocket):
+    """The live channel (app/net/live.py): «посмотри заново» at once instead of at the next pulse."""
+    def who(headers, ip):
+        if not enabled():
+            return None
+        ctx = agents.authenticate(agents.bearer(headers), ip)
+        return ctx.agent_id if ctx else None
+    await live.serve(ws, who)
 
 
 @router.get("/agents/api/config")

@@ -1336,6 +1336,32 @@ test('обновление: что предлагает SYSAI и почему н
   assert.match(lonely.error, /не подключён/);
 });
 
+test('обновление: новая сборка в state.json — окно узнаёт сразу, не через полчаса', () => {
+  const home = tmp();
+  const file = path.join(home, 'state.json');
+  const write = (s) => fs.writeFileSync(file, JSON.stringify(s));
+  write({ offer: { version: '0.4.14', build: 'a' } });
+  const ticks = [];
+  const timer = { set: (fn) => { ticks.push(fn); return 7; }, clear: (id) => ticks.push(`stop ${id}`) };
+  const heard = [];
+  const stop = updates.watch({ home, changed: (k) => heard.push(k), timer });
+  ticks[0]();
+  assert.deepEqual(heard, [], 'то, что было при открытии, окно проверяет само');
+  write({ offer: { version: '0.4.15', build: 'b' } });
+  ticks[0]();
+  ticks[0]();
+  assert.equal(heard.length, 1, 'один раз на новую сборку');
+  write({ offer: { version: '0.4.15', build: 'b' }, desktop_offer: { version: '0.10.2', sha256: 'c' } });
+  ticks[0]();
+  assert.equal(heard.length, 2, 'новое окно — тоже новость');
+  fs.writeFileSync(file, '{битый');
+  ticks[0]();
+  assert.equal(heard.length, 2, 'битый файл (синхронизатор пишет его прямо сейчас) — не новость');
+  stop();
+  assert.equal(ticks[1], 'stop 7');
+  assert.equal(updates.offerKey({}), '');
+});
+
 test('обновление: «установить» только просит синхронизатор', () => {
   const home = tmp();
   assert.equal(updates.wake(home).asking, false, 'цикла нет — будить некого');

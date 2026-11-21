@@ -128,4 +128,29 @@ function status({ home }) {
   };
 }
 
-module.exports = { cmp, compare, offerOf, tail, check, wake, status, readJson };
+// What the synchronizer last heard SYSAI offer (state.json: `offer` — itself, `desktop_offer` — this window) as one key:
+// it changes when a new build is offered, so the window can say «есть обновление» the moment the pulse (or a push on
+// the live channel) brought it, instead of at its own half-hourly check.
+function offerKey(state) {
+  const s = state || {};
+  const sync = (s.offer && typeof s.offer === 'object') ? s.offer : {};
+  const win = (s.desktop_offer && typeof s.desktop_offer === 'object') ? s.desktop_offer : {};
+  const key = [sync.version || '', sync.build || '', win.version || '', win.sha256 || ''].join('|');
+  return key === '|||' ? '' : key;
+}
+
+// Watches state.json every `every` ms; `changed()` once per new offer (not for the one there at the start: the window
+// checks that itself on opening). Returns stop(). `timer` is swappable for the tests.
+function watch({ home, changed, every = 3000, timer = { set: setInterval, clear: clearInterval } }) {
+  let seen = offerKey(readJson(path.join(home, 'state.json'), {}));
+  const id = timer.set(() => {
+    const now = offerKey(readJson(path.join(home, 'state.json'), {}));
+    if (now && now !== seen) {
+      seen = now;
+      changed(now);
+    }
+  }, every);
+  return () => timer.clear(id);
+}
+
+module.exports = { cmp, compare, offerOf, tail, check, wake, status, readJson, offerKey, watch };

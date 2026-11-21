@@ -504,6 +504,55 @@ def test_update_now_also_resyncs_the_hub_and_the_rules(pc, client, monkeypatch):
     assert state["update_rev"] == 1
 
 
+class _Live:
+    """The live channel as the loop sees it: `wait` says whether SYSAI pushed; the push here is a saved swarm."""
+
+    def __init__(self, push):
+        self.push, self.waited, self.up, self.error, self.stopped = push, [], True, "", False
+
+    def wait(self, seconds):
+        self.waited.append(seconds)
+        if len(self.waited) == 1:
+            self.push()
+            return True
+        return False
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_a_push_on_the_live_channel_brings_the_saved_swarm_at_once_not_at_the_pulse(pc):
+    """«Рой агентов»: сохранили — за одну секунду ожидания компьютер уже с новой редакцией. Часы — не
+    настоящие: сон запрещён, и пульс раз в час дождаться нельзя — дойти может только толчок по каналу."""
+    core.sync_once(pc["home"], transport=pc["send"])
+    first = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))["access_rev"]
+    channel = _Live(lambda: access.set_agent_swarm(pc["agent_id"], True, 10, 4, by="boss"))
+
+    def no_sleep(_):
+        raise AssertionError("с живым каналом цикл ждёт на нём, а не спит")
+    assert core.run(pc["home"], every=3600, transport=pc["send"], cycles=2, sleep=no_sleep,
+                    live=lambda cfg, token: channel) == 0
+    assert channel.waited == [1], "одна секунда ожидания из 3600 — и толчок уже пришёл"
+    state = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))
+    assert state["access_rev"] != first and state["access_rev"] == access.document(pc["agent_id"])["rev"]
+    assert json.loads((pc["home"] / "access.json").read_text(encoding="utf-8"))["doc"]["rules"]["swarm"] == \
+        {"on": True, "cells": 10, "at": 4}, "рой — из подписанного документа, а не из толчка"
+    assert state["live_up"] is True and state["live_error"] == "" and channel.stopped
+
+
+def test_without_a_live_channel_the_loop_pulses_as_before_and_says_why(pc):
+    channel = _Live(lambda: None)
+    channel.up, channel.error = False, "нет пакета websockets: живой канал выключен, работаем по пульсу"
+    channel.wait = lambda seconds: channel.waited.append(seconds) or False
+    assert core.run(pc["home"], every=3, transport=pc["send"], cycles=1, sleep=lambda _: None,
+                    live=lambda cfg, token: channel) == 0
+    assert channel.waited == [], "cycles=1: цикл кончился до ожидания"
+    state = json.loads((pc["home"] / "state.json").read_text(encoding="utf-8"))
+    assert state["live_up"] is False and "по пульсу" in state["live_error"]
+    assert core._wait(pc["home"], 3, lambda _: None, channel) == "" and channel.waited == [1, 1, 1], \
+        "без толчка — полный пульс, как раньше"
+
+
 def test_the_installer_and_the_wheel(client, net_on):
     r = client.get("/agents/api/install.ps1")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain") and "utf-8" in r.headers["content-type"]
