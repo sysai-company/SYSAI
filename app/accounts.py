@@ -227,6 +227,15 @@ def create_user(username: str, password: str, role: str, by: str, display_name: 
             raise AccountError("Этот логин уже занят.") from None
 
 
+def _drop_agents_of(session, user_id: int) -> None:
+    """The person lost access, so did their agents (agents.authenticate checks the account): their open live channels
+    are closed now, not when the next keepalive asks the token again."""
+    from .net import live
+    from .net.models import NetAgent
+    for (agent_id,) in session.query(NetAgent.id).filter(NetAgent.user_id == user_id).all():
+        live.drop(agent_id)
+
+
 def apply(user_id: int, action: str, by: str) -> str:
     """Approve, reject, disable, promote, demote or delete an account. Returns a message for the panel."""
     if action not in ACTIONS:
@@ -276,11 +285,14 @@ def apply(user_id: int, action: str, by: str) -> str:
             if last_superuser:
                 raise AccountError("Нельзя удалить последнего суперпользователя.")
             username = user.username
+            _drop_agents_of(s, user.id)
             s.delete(user)
             s.commit()
             return f"{username}: аккаунт удалён"
         user.decided_at, user.decided_by = now(), by
         s.commit()
+        if action == "disable":
+            _drop_agents_of(s, user.id)
         return f"{user.username}: {done}"
 
 

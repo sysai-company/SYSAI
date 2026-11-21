@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, desktop, fsutil, hermes, hermes_patch, hubsync, paths, secret, signing, update
+from . import __version__, desktop, fsutil, hermes, hermes_patch, hubsync, live as livechan, paths, secret, signing, update
 from .client import ApiError, Client
 
 log = logging.getLogger("sysai_agent")
@@ -294,22 +294,56 @@ def _lock(home: Path):
     return None
 
 
-def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: int = 0, sleep=time.sleep) -> int:
+def _open_live(cfg: dict, token: str):
+    return livechan.Channel(cfg["server"], token).start()
+
+
+def _note_live(home: Path, channel) -> None:
+    """Whether the live channel is held, and why not — in state.json beside the pulse («почему не мгновенно»)."""
+    up = bool(channel and channel.up)
+    why = "" if up else (channel.error if channel else "живой канал не открыт") or "живой канал открывается"
+    state = fsutil.read_json(Path(home) / "state.json", {}) or {}
+    if state.get("live_up") != up or state.get("live_error", "") != why:
+        state["live_up"], state["live_error"] = up, why
+        fsutil.write_json(Path(home) / "state.json", state)
+
+
+def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: int = 0, sleep=time.sleep,
+        live=None) -> int:
     """The loop: a full synchronization at the start, then a pulse every `every` seconds; a full one again when the
-    server's revisions differ from the applied ones, after an error, or once an hour. `cycles` > 0 — for tests."""
+    server's revisions differ from the applied ones, after an error, or once an hour. `cycles` > 0 — for tests.
+
+    `live(cfg, token)` opens the live channel (live.py): a push from SYSAI ends the wait at once, so the pulse — and
+    the synchronization it decides on — comes now. Without one (tests with their own transport, or the channel is
+    down) the loop is exactly the pulse every `every` seconds it always was."""
+    if live is None and transport is None:
+        live = _open_live
     home = Path(home or paths.home())
     (home / "stop").unlink(missing_ok=True)
     lock = _lock(home)
     if lock is None:
         log.info("Синхронизатор уже работает на этом компьютере")
         return 0
+    channel, opened_for = None, None
     try:
         last_full, failed, n = 0.0, True, 0
         while True:
             n += 1
             try:
                 cfg = load_agent(home)
-                client, _ = client_for(home, cfg, transport)
+                client, token = client_for(home, cfg, transport)
+                # `sysai-agent connect` while the loop runs changes the server or the token: the channel follows
+                if live is not None and (channel is None or opened_for != (cfg["server"], token)):
+                    if channel is not None:
+                        channel.stop()
+                        channel = None
+                    opened_for = (cfg["server"], token)
+                    try:
+                        channel = live(cfg, token)
+                    except Exception as exc:  # noqa: BLE001 — no channel is no reason to stop the pulse
+                        log.warning("Живой канал SYSAI не открыт: %s", exc)
+                if live is not None:
+                    _note_live(home, channel)
                 state = fsutil.read_json(home / "state.json", {}) or {}
                 need = failed or time.time() - last_full > FULL_EVERY or state.get("restart_pending")
                 if not need:
@@ -344,7 +378,9 @@ def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: in
                 _note_failure(home, exc)
             if cycles and n >= cycles:
                 return 0
-            signal = _wait(home, every, sleep)
+            signal = _wait(home, every, sleep, channel)
+            if signal == "live":
+                log.info("SYSAI попросил посмотреть заново: пульс сейчас, не через %s с", every)
             if signal == "stop":
                 log.info("Синхронизатор остановлен (его попросили: установщик или sysai-agent stop)")
                 return 0
@@ -357,6 +393,8 @@ def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: in
                 failed = True
                 log.info("Разбудили из окна агента: полная синхронизация и обновление сейчас")
     finally:
+        if channel is not None:
+            channel.stop()
         lock.unlink(missing_ok=True)
 
 
@@ -396,9 +434,10 @@ def wake(home: Path | None = None) -> bool:
     return True
 
 
-def _wait(home: Path, seconds: int, sleep) -> str:
+def _wait(home: Path, seconds: int, sleep, channel=None) -> str:
     """Sleeps; "stop" when asked to stop (the file «stop» — the installer does so before updating), "wake" when the
-    window asks to check for an update now (the file «wake»), "" — the time is up."""
+    window asks to check for an update now (the file «wake»), "live" when SYSAI said «посмотри заново» over the
+    live channel, "" — the time is up."""
     folder = Path(home)
     stop, wake = folder / "stop", folder / "wake"
     for _ in range(max(1, int(seconds))):
@@ -408,7 +447,11 @@ def _wait(home: Path, seconds: int, sleep) -> str:
         if wake.exists():
             wake.unlink(missing_ok=True)
             return "wake"
-        sleep(1)
+        if channel is not None:
+            if channel.wait(1):  # the second is spent waiting on the channel instead of sleeping
+                return "live"
+        else:
+            sleep(1)
     return ""
 
 

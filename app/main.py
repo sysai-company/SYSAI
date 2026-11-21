@@ -308,6 +308,10 @@ async def health(request: Request):
         out["public"] = _server(request)
     except Exception:  # noqa: BLE001 — never take the health check down for a diagnostic
         out["public"] = ""
+    # How many computers hold the live channel now (app/net/live.py): 0 while agents pulse means the socket does not
+    # get through (a proxy without the upgrade) — everything still works, only at the pulse's pace.
+    from .net import live
+    out["live"] = live.count()
     return out
 
 

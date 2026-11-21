@@ -17,7 +17,7 @@ PACKAGE = "sysai_agent"
 MARKER = b"SYSAI-CFG-V1"
 FIELD = 512
 BLOCK = FIELD * 2
-REQUIRES = ("cryptography>=41", "PyYAML>=6", 'keyring>=24; sys_platform == "win32"')
+REQUIRES = ("cryptography>=41", "PyYAML>=6", 'keyring>=24; sys_platform == "win32"', "websockets>=12")  # websockets: the live channel (live.py)
 _cache: dict = {}
 
 

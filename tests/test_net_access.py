@@ -364,7 +364,8 @@ def test_the_swarm_setting_limits_the_honeycomb_and_a_change_reaches_the_agent(c
         page = client.get("/agents/access")
         assert page.status_code == 200
         assert 'name="swarm_on"' in page.text and 'name="swarm_cells"' in page.text
-        assert "Соты" in page.text
+        assert "Сеть агентов → Рой агентов" in page.text, "ссылка — на настоящий пункт меню (base.html), а не на старое «Соты»"
+        assert "data-comb" in page.text and 'type="range" data-pair="at"' in page.text, "ползунки рядом с числами"
     finally:
         access.save_profile(pid, "Инженер ОПО", "", base, by="boss")
 
@@ -429,6 +430,9 @@ def test_the_swarm_is_switched_for_one_person_on_the_honeycomb_page(client, net_
     assert f'action="/agents/swarm/{net_agent["id"]}" class="comb-wrap"' in card
     assert 'name="cells" type="number"' in card and 'value="12"></label>' in card
     assert 'name="at" type="number" min="1" max="40" step="1" value="12"' in card
+    # ползунки — рядом с числами (форма шлёт числа, без JavaScript всё как раньше), схема: 12 зелёных из 40
+    assert 'type="range" data-pair="cells"' in card and 'type="range" data-pair="at"' in card and "data-comb" in card
+    assert card.count('class="cell run"') == 12 and "работают разом" in card
     other_card = client.get(f"/agents/swarm?pick={other.id}").text.split('id="pick"', 1)[1]
     assert f'action="/agents/swarm/{other.id}" class="comb-wrap"' in other_card
     assert 'name="at" type="number" min="1" max="40" step="1" value="6"' in other_card
