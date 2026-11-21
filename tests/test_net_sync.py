@@ -521,6 +521,29 @@ class _Live:
         self.stopped = True
 
 
+def test_a_new_connection_while_the_loop_runs_reopens_the_live_channel(pc, monkeypatch):
+    """`sysai-agent connect` while `run` works (another agent, another server, a new token): the loop must open the
+    channel again with what is on disk now, not keep listening on the old one."""
+    opened = []
+
+    def opener(cfg, token):
+        ch = _Live(lambda: None)
+        ch.wait = lambda seconds: False
+        ch.key = (cfg["server"], token)
+        opened.append(ch)
+        return ch
+    tokens = iter(["sya_first", "sya_first", "sya_second", "sya_second"])
+    real = core.client_for
+
+    def client_for(home, cfg, transport=None):
+        client, _ = real(home, cfg, transport)
+        return client, next(tokens)
+    monkeypatch.setattr(core, "client_for", client_for)
+    assert core.run(pc["home"], every=1, transport=pc["send"], cycles=3, sleep=lambda _: None, live=opener) == 0
+    assert [c.key[1] for c in opened] == ["sya_first", "sya_second"], "same token — same channel; new token — new one"
+    assert opened[0].stopped and opened[1].stopped, "the old channel is closed when replaced, the new one at the end"
+
+
 def test_a_push_on_the_live_channel_brings_the_saved_swarm_at_once_not_at_the_pulse(pc):
     """«Рой агентов»: сохранили — за одну секунду ожидания компьютер уже с новой редакцией. Часы — не
     настоящие: сон запрещён, и пульс раз в час дождаться нельзя — дойти может только толчок по каналу."""

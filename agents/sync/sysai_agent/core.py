@@ -324,7 +324,7 @@ def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: in
     if lock is None:
         log.info("Синхронизатор уже работает на этом компьютере")
         return 0
-    channel = None
+    channel, opened_for = None, None
     try:
         last_full, failed, n = 0.0, True, 0
         while True:
@@ -332,7 +332,12 @@ def run(home: Path | None = None, every: int = EVERY, transport=None, cycles: in
             try:
                 cfg = load_agent(home)
                 client, token = client_for(home, cfg, transport)
-                if channel is None and live is not None:
+                # `sysai-agent connect` while the loop runs changes the server or the token: the channel follows
+                if live is not None and (channel is None or opened_for != (cfg["server"], token)):
+                    if channel is not None:
+                        channel.stop()
+                        channel = None
+                    opened_for = (cfg["server"], token)
                     try:
                         channel = live(cfg, token)
                     except Exception as exc:  # noqa: BLE001 — no channel is no reason to stop the pulse

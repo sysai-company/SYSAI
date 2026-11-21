@@ -58,7 +58,8 @@ class Channel:
     def wait(self, seconds: float) -> bool:
         """Waits up to `seconds`; True — SYSAI said «посмотри заново» meanwhile (or before)."""
         got = self._woken.wait(max(0.0, seconds))
-        self._woken.clear()
+        if got:  # wait() and clear() are two steps: a push landing after a timeout is kept for the next wait
+            self._woken.clear()
         return got
 
     def stop(self) -> None:

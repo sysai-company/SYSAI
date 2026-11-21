@@ -66,8 +66,15 @@ def test_a_hub_publish_and_a_profile_save_wake_everyone_connected(client, net_ag
         r = client.post("/hub/upload", files={"file": ("opo-live.zip", blob.getvalue(), "application/zip")},
                         follow_redirects=False)
         assert r.status_code == 303 and "opo-live" in r.headers["location"]
-        client.post("/hub/opo-live/1.0.0/publish", data={"note": ""})
+        r = client.post("/hub/opo-live/1.0.0/publish", data={"note": ""})
         assert ws.receive_json() == {"type": "poke", "why": "hub"}
+        assert "агенты на связи (1) получили сразу" in r.text, "сообщение говорит то, что случилось"
+        r = client.post("/agents/access/soul", data={"common": "Кратко и по делу"})
+        assert ws.receive_json()["why"] == "soul" and "агенты на связи (1) получили сразу" in r.text
+        r = client.post(f"/agents/{net_agent['id']}/access", data={"overrides": "{}"})
+        assert ws.receive_json()["why"] == "access" and "компьютер на связи — получил сразу" in r.text
+    r = client.post("/agents/access/soul", data={"common": "Кратко и по делу"})
+    assert "сейчас никто не на связи" in r.text, "без канала — честно про пульс"
 
 
 def test_no_token_no_channel_and_a_switched_off_agent_is_cut_off(client, net_agent):
@@ -88,6 +95,24 @@ def test_no_token_no_channel_and_a_switched_off_agent_is_cut_off(client, net_age
     with pytest.raises(WebSocketDisconnect):  # the revoked token does not open it again
         with _open(client, net_agent) as ws:
             ws.receive_json()
+
+
+def test_a_deleted_agent_is_cut_off_too(client, net_agent):
+    """Deleting is switching off for good: the open socket closes and stops counting on /health, as on revoke."""
+    with _open(client, net_agent) as ws:
+        assert live.count() == 1
+        agents.delete(net_agent["id"], by="test")
+        with pytest.raises(WebSocketDisconnect) as cut:
+            ws.receive_json()
+        assert cut.value.code == live.UNAUTHORIZED
+    assert not live.connected(net_agent["id"]) and client.get("/health").json()["live"] == 0
+
+
+def test_with_nobody_asked_the_message_does_not_say_all_are_on_the_line(client, net_on):
+    """No agents in the network: «Все на связи» about nobody would be a lie."""
+    r = client.post("/agents/update", data={"scope": "all"})
+    note = r.text.split('role="status">', 1)[1].split("<", 1)[0]
+    assert "Все на связи" not in note and "Агентов нет" in note, note
 
 
 def test_health_counts_the_agents_on_the_line(client, net_agent):
@@ -146,6 +171,33 @@ def test_the_channel_turns_a_push_into_a_wake_and_pings_by_its_own_clock():
         conn.closed.set()
 
 
+def test_a_push_that_lands_as_the_wait_times_out_is_kept_for_the_next_wait():
+    """wait() and clear() are two steps: a push that lands between the timeout and clear() must not be wiped, or the
+    loop waits a whole pulse for something SYSAI already said."""
+    ch = client_live.Channel("https://sysai.example", "sysai_tok")
+
+    class _Racy:
+        """An event whose wait() times out, and the push lands right after — before wait() would clear."""
+        def __init__(self):
+            self.flag = False
+
+        def wait(self, timeout=None):
+            self.flag = True  # the poke arrives just as the wait gave up
+            return False
+
+        def clear(self):
+            self.flag = False
+
+        def is_set(self):
+            return self.flag
+
+        def set(self):
+            self.flag = True
+    ch._woken = _Racy()
+    assert ch.wait(1) is False
+    assert ch._woken.is_set(), "the push that came after the timeout is still there for the next wait"
+
+
 def test_without_websockets_the_channel_says_why_and_the_pulse_stays(monkeypatch):
     def no_package():
         raise ImportError("No module named 'websockets'")
@@ -155,3 +207,4 @@ def test_without_websockets_the_channel_says_why_and_the_pulse_stays(monkeypatch
     assert not ch.up and "нет пакета websockets" in ch.error and "по пульсу" in ch.error
     assert ch.wait(0) is False, "no push — the loop waits its pulse"
     assert client_live.url_of("ftp://x") == "" and client_live.Channel("ftp://x", "t").start().error
+

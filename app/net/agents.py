@@ -284,6 +284,8 @@ def delete(agent_id: int, by: str = "") -> None:
         s.delete(agent)
         journal.log("agent.delete", name, None, actor=by, session=s)
         s.commit()
+    from . import live
+    live.drop(agent_id)  # as on revoke: a deleted agent's open live channel is closed, not left counting on /health
 
 
 def heartbeat(ctx: AgentCtx, data: dict) -> dict:

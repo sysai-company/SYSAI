@@ -309,8 +309,17 @@ async def agents_update(request: Request):
     return _back("/agents", msg=f"Обновление отправлено: {what} ({n}). {_on_line(now_, n)}")
 
 
+def _reach(told: int) -> str:
+    """After a poke to everyone: who got it at once and who learns at the pulse — said, not promised."""
+    if told:
+        return f"агенты на связи ({told}) получили сразу, остальные — при следующей синхронизации"
+    return "агенты получат при следующей синхронизации (сейчас никто не на связи)"
+
+
 def _on_line(now_: int, asked: int) -> str:
     """How many got it at once over the live channel and how many wait for the pulse — said, not promised."""
+    if asked <= 0:
+        return "Агентов нет — обновлять некого"
     rest = max(0, asked - now_)
     if not rest:
         return "Все на связи — ставят сейчас"
@@ -355,7 +364,7 @@ async def agent_action(request: Request, agent_id: int, action: str):
             except ValueError:
                 return _back(f"/agents/{agent_id}#access", error="Личные исключения: это не JSON")
             access.set_agent_access(agent_id, _int(form.get("profile_id")), overrides, by=me["username"])
-            live.poke([agent_id], "access")
+            told = live.poke([agent_id], "access")
             with SessionLocal() as s:
                 row = s.get(NetAgent, agent_id)
                 before = {"сотрудник": row.employee_id, "отдел": row.department_id}
@@ -365,7 +374,9 @@ async def agent_action(request: Request, agent_id: int, action: str):
                 if changes:
                     journal.log("agent.settings", row.name, changes, actor=me["username"], agent_id=row.id, session=s)
                 s.commit()
-            return _back(f"/agents/{agent_id}#access", msg="Доступы сохранены: агент применит их при следующей синхронизации")
+            return _back(f"/agents/{agent_id}#access", msg="Доступы сохранены: " + (
+                "компьютер на связи — получил сразу" if told else
+                "компьютер сейчас не на связи — применит при следующем пульсе"))
     except (agents.AgentError, access.AccessError) as exc:
         return _back(f"/agents/{agent_id}", error=str(exc))
     raise HTTPException(404, "Нет такого действия")
@@ -451,8 +462,8 @@ async def access_soul(request: Request):
         if key.startswith("dept_name_") and str(name).strip():
             additions[str(name).strip()] = str(form.get("dept_" + key[10:]) or "")
     soul.save(str(form.get("common") or ""), additions, by=me["username"])
-    live.poke(None, "soul")
-    return _back("/agents/access#soul", msg="Характер сохранён: агенты получат новый SOUL.md при следующей синхронизации")
+    told = live.poke(None, "soul")
+    return _back("/agents/access#soul", msg=f"Характер сохранён: новый SOUL.md — {_reach(told)}")
 
 
 @router.post("/agents/access/settings")
@@ -719,8 +730,8 @@ def hub_version_action(request: Request, name: str, version: str, action: str, n
             done = "Версия отправлена на проверку"
         elif action == "publish":
             hub.publish(name, version, me, note)
-            live.poke(None, "hub")
-            done = f"Версия {version} опубликована: агенты получат её при следующей синхронизации"
+            told = live.poke(None, "hub")
+            done = f"Версия {version} опубликована: {_reach(told)}"
         elif action == "reject":
             hub.reject(name, version, me, note)
             done = "Версия отклонена"
