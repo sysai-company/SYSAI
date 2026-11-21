@@ -1396,6 +1396,33 @@ test('соты: новый документ доступов в state.json — �
   ticks[0]();
   assert.equal(heard.length, 1, 'администратор включил соты: синхронизатор принёс новый документ — один раз');
   assert.equal(updates.accessKey({}), '');
+
+  // ПК без документа доступов при запуске окна: первый проверенный документ — тоже новость
+  const fresh = tmp();
+  const freshFile = path.join(fresh, 'state.json');
+  fs.writeFileSync(freshFile, '{}');
+  const freshTicks = [];
+  const firstHeard = [];
+  updates.watch({ home: fresh, key: updates.accessKey, changed: (k) => firstHeard.push(k),
+    timer: { set: (fn) => { freshTicks.push(fn); return 4; }, clear: () => {} } });
+  freshTicks[0]();
+  assert.deepEqual(firstHeard, [], 'документа нет — не новость');
+  fs.writeFileSync(freshFile, JSON.stringify({ access_sha: 'c'.repeat(64) }));
+  freshTicks[0]();
+  assert.deepEqual(firstHeard, ['c'.repeat(64)], 'первый документ доступов доставлен — окно переспрашивает соты');
+});
+
+// Новое разрешение роя и строка о живом канале посчитаны в renderer/js/combs.mjs: окно только рисует.
+test('соты: новый предел из доступов меняет число сот в панели, а меню не молчит про канал', async () => {
+  const { cellsAfter, liveLine } = await import('../renderer/js/combs.mjs');
+  assert.equal(cellsAfter(16, { cells: 8 }), 8, 'предел уменьшили — панель не просит больше разрешённого');
+  assert.equal(cellsAfter(6, { cells: 12 }), 6, 'предел вырос — выбор человека на месте');
+  assert.equal(cellsAfter(undefined, { cells: 12 }), 12, 'выбора не было — весь предел');
+  assert.equal(cellsAfter(2, { cells: 0 }), 4, 'не меньше 4, как у ползунка');
+  assert.equal(liveLine({ liveUp: true, liveError: '' }), '', 'канал держится — говорить нечего');
+  assert.match(liveLine({ liveUp: false, liveError: 'нет пакета websockets' }), /не держится: нет пакета/);
+  assert.match(liveLine({ liveUp: false }), /по пульсу/);
+  assert.match(liveLine(null), /не прочитано/, 'состояние не прочиталось — это не «канал в порядке»');
 });
 
 test('обновление: окно знает, держится ли живой канал и почему нет', () => {

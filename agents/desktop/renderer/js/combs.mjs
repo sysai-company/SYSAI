@@ -21,3 +21,20 @@ export function rowsOf(count, per) {
 
 // Ряд нечётный (второй, четвёртый…) — его сдвигаем на полсоты: ряды сцепляются гранями, как настоящие соты.
 export const isOdd = (index) => index % 2 === 1;
+
+// Новое разрешение роя (синхронизатор принёс документ доступов): сколько сот просить после него. Выбор
+// человека сохраняется, но не больше нового предела и не меньше 4 (та же вилка, что у ползунка панели).
+export function cellsAfter(wanted, allowed) {
+  const cap = Math.max(4, Math.min(Number(allowed && allowed.cells) || 4, 40));
+  const w = Math.floor(Number(wanted));
+  return Number.isFinite(w) && w > 0 ? Math.max(4, Math.min(w, cap)) : cap;
+}
+
+// Строка меню «Ещё» о живом канале. `status` — ответ updates.status, null — прочесть состояние не удалось:
+// это тоже говорится, иначе меню молчит так же, как когда канал держится. "" — канал держится.
+export function liveLine(status) {
+  if (!status || typeof status !== 'object') return 'состояние живого канала не прочитано';
+  if (status.liveUp) return '';
+  const why = String(status.liveError || '').trim();
+  return `живой канал не держится: ${why || 'работаем по пульсу'}`;
+}

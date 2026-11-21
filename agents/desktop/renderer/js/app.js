@@ -12,6 +12,7 @@ import { openMenu, toast } from './ui.js';
 import { SwarmPanel } from './swarm.js';
 import { ensureLoaded } from './session-load.mjs';
 import { reserveSend, releaseSend } from './send-lock.mjs';
+import { cellsAfter, liveLine } from './combs.mjs';
 
 const api = window.sysai;
 const $ = (id) => document.getElementById(id);
@@ -899,7 +900,10 @@ function drawSidebar() {
   // Живой канал (websocket): держится ли он — и почему нет. Синхронизатор пишет это в state.json, окно читает
   // при открытии меню: «почему не мгновенно» видно здесь, а не только в журнале.
   more.addEventListener('click', async () => {
-    const live = await api.updates.status().catch(() => null);
+    const live = await api.updates.status().catch((e) => {
+      console.error('состояние живого канала не прочитано:', e && e.message ? e.message : e);
+      return null;
+    });
     S.live = live && typeof live === 'object' ? live : null;
     openMenu(more, [
     { label: S.upd && S.upd.update ? `Установить обновление ${(S.upd.offered || {}).version || ''}`.trim()
@@ -1004,7 +1008,8 @@ function drawTop() {
   ].filter(Boolean));
 }
 
-function bootScreen() {  const st = S.acp;
+function bootScreen() {
+  const st = S.acp;
   const tile = h('span', { class: `tile${st.state === 'starting' ? ' live' : ''}` }, h('i'), h('i'), h('i'));
   if (!S.info.connected) {
     return h('div', { class: 'boot' }, tile, h('h2', { text: 'Компьютер не подключён к SYSAI' }),
@@ -1219,17 +1224,21 @@ function wire() {
 function refreshSwarm() {
   return api.swarm.allowed().then((allowed) => {
     swarmPanel.allowed = allowed && typeof allowed === 'object' ? allowed : { on: false, cells: 0 };
+    // новый предел сот: ползунок и число в панели следуют за ним без перезапуска окна
+    swarmPanel.cellsWanted = cellsAfter(swarmPanel.cellsWanted, swarmPanel.allowed);
     composer.updateSwarm({ on: Boolean(allowed && allowed.on), busy: swarmPanel.busy });
-  }).catch(() => composer.updateSwarm({ on: false }));
+    if (!swarmPanel.el.hidden && !swarmPanel.busy) swarmPanel.draw();
+  }).catch((e) => {
+    // не молча: непрочитанный документ доступов иначе выглядит ровно как «соты выключены» (страница → журнал окна)
+    console.error('разрешение на соты не прочитано:', e && e.message ? e.message : e);
+    composer.updateSwarm({ on: false });
+  });
 }
 
-// Живой канал: одна строка для меню «Ещё» — держится он или нет и почему. Пусто, когда всё в порядке: нечего
-// говорить человеку, у которого изменения и так приходят сразу.
+// Живой канал для меню «Ещё»: строку считает combs.mjs (liveLine), здесь — только разделитель.
 function liveWhy() {
-  const live = S.live;
-  if (!live || live.liveUp) return '';
-  const why = String(live.liveError || '').trim();
-  return ` · ${why ? `живой канал не держится: ${why}` : 'живой канал не держится: работаем по пульсу'}`;
+  const line = liveLine(S.live);
+  return line ? ` · ${line}` : '';
 }
 
 async function main() {
