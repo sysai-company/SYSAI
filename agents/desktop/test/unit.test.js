@@ -538,8 +538,9 @@ test('рой агента: сот столько, сколько запусти�
 test('рой агента: папка проекта — по правилам записи, отказ видит человек, нечитаемый выбор — в журнале', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const start = src.slice(src.indexOf('      swarm_start: async (body) => {'), src.indexOf('      swarm_status:'));
-  const check = start.indexOf('agentWrite(');
+  const check = start.indexOf('swarmTool.projectRefusal(');
   assert.ok(check > 0, 'папка проекта проверяется правилами записи, как правка на холсте');
+  assert.ok(!/agentWrite\(|agentRead\(|agentTarget\(/.test(start), 'без пути «показать файл»: он путает «нет папки» с «запись не разрешена»');
   assert.ok(check < start.indexOf('startSwarm('), 'до запуска роя, а не после');
   const refused = start.slice(start.indexOf('if (!got.ok) {'), start.indexOf('startSwarm('));
   assert.match(refused, /sendOrQueue\('ui:notice'/, 'отказ агенту виден человеку плашкой');
@@ -549,6 +550,38 @@ test('рой агента: папка проекта — по правилам �
   const startTool = TOOLS.find((t) => t.name === 'swarm_start');
   assert.equal(startTool.annotations.readOnlyHint, false, 'запуск роя пишет отчёт и заводит сессии — не «только чтение»');
   assert.equal(startTool.annotations.idempotentHint, false);
+});
+
+test('рой агента: папка проекта — сначала правила записи, потом «нет папки» своими словами', () => {
+  const tool = require('../lib/swarm-tool');
+  const home = tmp();
+  const proj = path.join(home, 'Проекты', 'Элеватор');
+  fs.mkdirSync(proj, { recursive: true });
+  const missing = path.join(home, 'Проекты', 'ещё нет');
+  const file = path.join(proj, 'ТЗ.pdf');
+  fs.writeFileSync(file, 'x');
+  const projects = path.join(home, 'Проекты');
+  const ask = (p, folders) => tool.projectRefusal({ rules, got: { rules: { folders } }, p, home: path.join(home, 'SYSAI'), profileDir: '',
+    stat: fs.statSync });
+  assert.equal(ask(proj, { read: [], write: [projects] }), '', 'папка открыта на запись — можно');
+  assert.match(ask(proj, { read: [projects], write: [] }), /не разрешена на запись/, 'только чтение — отказ по записи');
+  const gone = ask(missing, { read: [], write: [projects] });
+  assert.match(gone, /нет такой папки проекта/, 'нет папки — так и сказано');
+  assert.ok(!/запись|Доступы/.test(gone), 'и не выдаётся за запрет записи');
+  assert.match(ask(missing, { read: [], write: [] }), /не разрешена на запись/, 'запрет спрашивается раньше, чем диск');
+  assert.match(ask(file, { read: [], write: [projects] }), /файл, а не папка/);
+  assert.match(tool.projectRefusal({ rules, got: { error: rules.NO_RULES }, p: proj, home, profileDir: '', stat: fs.statSync }), /^SYSAI: /);
+});
+
+test('рой агента: переключателя под полем нет, если рой выключен или предел меньше четырёх', async () => {
+  const { agentSwarmCap } = await import('../renderer/js/combs.mjs');
+  for (const cells of [0, 1, 2, 3]) assert.equal(agentSwarmCap({ on: true, cells }), 0, `предел ${cells}: переключателя нет`);
+  assert.equal(agentSwarmCap({ on: false, cells: 16 }), 0, 'администратор не разрешил — нет');
+  assert.equal(agentSwarmCap(null), 0);
+  assert.equal(agentSwarmCap({ on: true, cells: 4 }), 4);
+  assert.equal(agentSwarmCap({ on: true, cells: 16 }), 16);
+  const composer = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'composer.js'), 'utf8');
+  assert.match(composer, /this\.swarmCap = agentSwarmCap\(allowed\);/, 'окно берёт предел именно отсюда');
 });
 
 // ------------------------------------------------------------------------------------------------ storage

@@ -46,4 +46,21 @@ function brief(state) {
   return out;
 }
 
-module.exports = { DEFAULT_PREFS, prefsOf, decide, brief };
+// Папка проекта для роя (cwd сот и место отчёта .sysai/swarm): те же правила записи, что у правки на холсте, но без
+// пути «показать файл»: правила спрашиваются первыми, а нет папки — это своя причина, а не «запись не разрешена».
+// "" — можно. rules — lib/rules.js, got — rules.load(), stat(p) → fs.Stats или исключение.
+function projectRefusal({ rules, got, p, home, profileDir, stat }) {
+  if (!got || !got.rules) return `SYSAI: ${(got && got.error) || rules.NO_RULES}`;
+  if (!rules.pathAllowed(got.rules, p, true)) return `SYSAI: папка ${String(p).slice(0, 160)} агенту не разрешена на запись (SYSAI → Доступы → Папки)`;
+  if (rules.guardedPath(p, home, profileDir)) return `SYSAI: ${rules.SETTINGS_NOTE}`;
+  let st;
+  try {
+    st = stat(p);
+  } catch {
+    return `нет такой папки проекта: ${String(p).slice(0, 160)}`;
+  }
+  if (!st.isDirectory()) return `это файл, а не папка проекта: ${String(p).slice(0, 160)}`;
+  return '';
+}
+
+module.exports = { DEFAULT_PREFS, prefsOf, decide, brief, projectRefusal };

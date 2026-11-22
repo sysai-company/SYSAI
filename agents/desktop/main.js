@@ -741,12 +741,10 @@ async function startBridge() {
         // папка проекта — cwd сот и место отчёта (.sysai/swarm): те же правила записи, что у правки на холсте
         if (got.ok && got.project) {
           const p = rules.fullPath(got.project);
-          try {
-            agentWrite(p);
-            got.project = p;
-          } catch (err) {
-            Object.assign(got, { ok: false, error: err.message });
-          }
+          const why = swarmTool.projectRefusal({ rules, got: rules.load(HOME), p, home: HOME, profileDir: config.load(HOME).profileDir,
+            stat: fs.statSync });
+          if (why) Object.assign(got, { ok: false, error: why });
+          else got.project = p;
         }
         if (!got.ok) {
           log(`агенту отказано в рое: ${got.error}`);

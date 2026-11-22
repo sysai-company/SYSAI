@@ -5,6 +5,7 @@
 // agent works does not stop it).
 import { h, icon, clear, basename } from './dom.js';
 import { openMenu, menuOpenFor, closeMenu, toast } from './ui.js';
+import { agentSwarmCap } from './combs.mjs';
 
 const api = window.sysai;
 const PLAN_HIDDEN = 'sysai.planHidden';
@@ -274,9 +275,8 @@ export class Composer {
 
   // Рой агента: предел из доступов (0 — рой не разрешён, переключателя нет)
   setSwarmLimit(allowed) {
-    // предел меньше четырёх — роя нет (окно всё равно откажет агенту): переключатель не обещает соты сверх предела
-    const cap = Number(allowed && allowed.cells) || 0;
-    this.swarmCap = allowed && allowed.on && cap >= 4 ? cap : 0;
+    // предел меньше четырёх — роя нет (окно всё равно откажет агенту): combs.mjs, agentSwarmCap
+    this.swarmCap = agentSwarmCap(allowed);
     this._drawSwarm();
   }
 
