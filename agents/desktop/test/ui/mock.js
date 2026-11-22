@@ -151,6 +151,8 @@
           return state;
         },
         stop: async () => true,
+        // «Рой: вкл» и число сот под полем: в стенде помнится до перезагрузки страницы
+        prefs: (() => { let p = { on: true, cells: 8 }; return async (next) => { if (next) p = { on: Boolean(next.on), cells: next.cells || 0 }; return p; }; })(),
         onState: (fn) => { subs.add(fn); return () => subs.delete(fn); },
       };
     })(),

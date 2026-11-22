@@ -12,6 +12,7 @@ import { openMenu, toast } from './ui.js';
 import { SwarmPanel } from './swarm.js';
 import { ensureLoaded } from './session-load.mjs';
 import { reserveSend, releaseSend } from './send-lock.mjs';
+import { enqueue, dequeue, next as nextQueued, release as releaseQueue } from './queue.mjs';
 import { applyAllowed, liveLine } from './combs.mjs';
 
 const api = window.sysai;
@@ -331,8 +332,9 @@ async function loadConv(conv) {
   return loaded;
 }
 
-async function send({ text, files }) {
-  let conv = current();
+// `target` — разговор, куда отправлять: сообщение из очереди уходит туда, где его написали, даже если открыт другой.
+async function send({ text, files }, target = null) {
+  let conv = target || current();
   try {
     if (!conv) conv = await newDraft();
   } catch (err) {
@@ -373,6 +375,7 @@ async function send({ text, files }) {
     conv.start();
     started = true;
     releaseSend(conv);
+    releaseQueue(conv); // человек снова пишет агенту: если очередь ждала после «Остановить», она снова идёт сама
 
     if (wasDraft) {
       S.draft = '';
@@ -388,14 +391,18 @@ async function send({ text, files }) {
     drawThread();
     drawTop();
     saveConv(conv, true);
+    let stopReason = null;
     try {
       const res = await api.acp.request('session/prompt', { sessionId: conv.key, prompt });
-      conv.finish(res && res.stopReason);
+      stopReason = res && res.stopReason;
+      conv.finish(stopReason);
     } catch (err) {
+      stopReason = 'error';
       conv.finish(null, err.message || String(err));
     }
     touch(conv.id);
     saveConv(conv, true);
+    drainQueue(conv, stopReason);
     return true;
   } catch (err) {
     toast(err.message, 'err');
@@ -404,6 +411,28 @@ async function send({ text, files }) {
     if (!started) releaseSend(conv);
   }
 }
+// Ход кончился: первое из очереди этого разговора уходит само (после «Остановить» и ошибки — нет, ждёт человека).
+function drainQueue(conv, stopReason) {
+  const item = nextQueued(conv, stopReason === 'error' ? 'cancelled' : stopReason);
+  if (conv.id === S.current) composer.update();
+  if (!item) return;
+  send({ text: item.text.trim(), files: item.files }, conv).then((ok) => {
+    if (ok !== false) return;
+    // не ушло: сообщение возвращается в начало очереди, и она ждёт — иначе оно пропало бы молча
+    conv.queue.unshift(item);
+    conv.queueHeld = true;
+    if (conv.id === S.current) composer.update();
+  });
+}
+
+function queueHooks() {
+  return {
+    enqueue: (msg) => { const conv = current(); return Boolean(conv && enqueue(conv, msg)); },
+    unqueue: (id) => { const conv = current(); if (conv) dequeue(conv, id); composer.update(); },
+    resume: () => { const conv = current(); if (conv) { releaseQueue(conv); drainQueue(conv, null); } },
+  };
+}
+
 function stop() {
   const conv = current();
   if (!conv || !conv.running) return;
@@ -1225,10 +1254,12 @@ function refreshSwarm() {
   return api.swarm.allowed().then((allowed) => {
     // новое разрешение: панель, число сот под новый предел (выбор человека цел), значок и перерисовка — combs.mjs
     applyAllowed(swarmPanel, composer, allowed);
+    composer.setSwarmLimit(allowed); // «Рой: вкл» и число сот под полем — не больше предела доступов
   }).catch((e) => {
     // не молча: непрочитанный документ доступов иначе выглядит ровно как «соты выключены» (страница → журнал окна)
     console.error('разрешение на соты не прочитано:', e && e.message ? e.message : e);
     composer.updateSwarm({ on: false });
+    composer.setSwarmLimit(null);
   });
 }
 
@@ -1248,7 +1279,7 @@ async function main() {
     project: () => { const c = current(); return c && c.cwd ? c.cwd : ''; } });
   swarmPanel.onState = (state) => composer && composer.updateSwarm({ on: swarmPanel.allowed.on, busy: Boolean(state && ['plan', 'work', 'merge'].includes(state.stage)) });
   composer = new Composer({ send, stop, setConfig, auto: () => S.auto, setAuto, undoEdit, recentEdits: () => api.auto.recent(),
-    swarm: () => swarmPanel.open(),
+    swarm: () => swarmPanel.open(), ...queueHooks(),
     project: () => { const c = current(); const p = c && projectOf(c.cwd); return p ? p.name : ''; }, ready: () => S.acp.state === 'ready' && Boolean(current()),
     idle: () => (!S.info.connected ? 'Компьютер не подключён к SYSAI' : S.acp.state === 'ready' ? 'Открываю разговор…'
       : !S.acp.state || S.acp.state === 'starting' ? 'Агент запускается…' : 'Агент не запущен — нажмите «Перезапустить»') });

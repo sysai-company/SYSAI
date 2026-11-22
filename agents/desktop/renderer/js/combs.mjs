@@ -25,6 +25,13 @@ export const isOdd = (index) => index % 2 === 1;
 // Новое разрешение роя (синхронизатор принёс документ доступов): сколько сот просить после него. `chosen` —
 // то, что человек выбрал ползунком (не выбирал — весь предел); результат не больше нового предела и не меньше 4
 // (та же вилка, что у ползунка панели). Сам выбор не меняется: предел снова вырос — вернётся и он.
+// Предел для «Рой: вкл» под полем (рой, который запускает агент): 0 — переключателя нет. Роя меньше четырёх
+// сот не бывает, и окно такой запрос агента отклонит: переключатель не обещает соты сверх предела.
+export function agentSwarmCap(allowed) {
+  const cap = Math.floor(Number(allowed && allowed.cells) || 0);
+  return allowed && allowed.on && cap >= 4 ? Math.min(cap, 40) : 0;
+}
+
 export function cellsAfter(chosen, allowed) {
   const cap = Math.max(4, Math.min(Number(allowed && allowed.cells) || 4, 40));
   const w = Math.floor(Number(chosen));
