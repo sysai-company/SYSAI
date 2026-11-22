@@ -61,6 +61,11 @@ const S = {
 const SAVE_MS = 500;
 const saveTimers = new Map();
 
+// Очереди разговоров, застигнутые падением агента: сам агент не может их отправить (ход кончился ошибкой),
+// а объекты разговоров `afterReady` выкидывает. Храним отдельно и возвращаем в тот же разговор — сообщение,
+// написанное человеком, не должно пропадать молча. Разговор не трогали — вернётся пусто.
+const heldQueues = new Map(); // id разговора → { queue: [...], at: Date.now() }
+
 let composer;
 let swarmPanel = null;
 let pane;
@@ -89,6 +94,13 @@ function makeConv(id) {
     copy: (text) => api.clipboard.write(text).then(() => toast('Скопировано', 'ok', 1500)),
     onRecord: () => saveConv(conv),
   });
+  // очередь, застигнутая падением агента: вернулась в тот же разговор и ждёт человека, а не уходит сама
+  const held = heldQueues.get(id);
+  if (held) {
+    heldQueues.delete(id);
+    conv.queue = [...held.queue];
+    conv.queueHeld = true;
+  }
   S.convs.set(id, conv);
   return conv;
 }
@@ -478,7 +490,9 @@ function onAcpState(st) {
   } else if (S.acp.state !== 'ready') {
     for (const conv of S.convs.values()) {
       for (const reqId of [...conv.asks.keys()]) conv.dropAsk(reqId, 'Агент перезапускается — вопрос снят');
-      if (conv.running) conv.finish(null, 'Агент остановился посреди работы. Если задача шла в шлюзе Hermes, она могла завершиться — откройте разговор снова.');
+      if (conv.running) conv.finish(null, 'Агент остановился посреди работы. Если задача шла в шлюзе SYSAI, она могла завершиться — откройте разговор снова.');
+      // очередь этого разговора переживает выкидывание разговоров при перезапуске — иначе она пропадает молча
+      if (Array.isArray(conv.queue) && conv.queue.length) heldQueues.set(conv.id, { queue: conv.queue, at: Date.now() });
     }
   }
   drawThread();
@@ -497,6 +511,11 @@ async function afterReady(restarted) {
     S.current = '';
   }
   const listed = loadSessions();
+  if (restarted && heldQueues.size) {
+    // очередь не уходит сама: агент упал — человек решает, отправлять ли её; в каком разговоре она ждала — видно тут же
+    const names = [...heldQueues.keys()].map((id) => { const s = S.sessions.find((x) => x.sessionId === id); return s && s.title ? s.title : 'разговор'; });
+    toast(`Агент перезапустился — ${heldQueues.size} ${heldQueues.size === 1 ? 'сообщение ждёт' : 'сообщения ждут'} в ${names.join(', ')}: отправьте или уберите`, 'warn', 9000);
+  }
   if (keep && restarted) selectConv(keep);
   else if (!current()) {
     // the window opens where the person left: the last conversation, when Hermes still has it; otherwise a new one

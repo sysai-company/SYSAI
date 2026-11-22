@@ -273,4 +273,9 @@
                '1280×800 — 10,1"', '1366×768 — 15"', '1920×1080 — 15"/21,5"'] } } },
     } }), 1400);
   }
+
+  // Тестовый хук: уронить и поднять агента (acp:state не‑ready, затем новый ready с новой generation) —
+  // проверять сценарий «очередь переживает перезапуск агента» в браузере. Только для стенда.
+  window.__sysaiTest = { drop: () => emit('acp:state', { state: 'stopped' }),
+    revive: () => emit('acp:state', { state: 'ready', generation: ++gen, agentInfo: { version: '0.23.1' } }) };
 })();

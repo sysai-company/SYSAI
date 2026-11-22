@@ -200,6 +200,27 @@ test('очередь: сообщение уходит в свой разгово
   assert.match(submit, /this\.conv\.running\) \{[^]*this\.hooks\.enqueue\(/, 'во время хода Enter ставит в очередь, а не молча выходит');
 });
 
+// Падение агента посреди хода выкидывает все объекты разговоров (afterReady → S.convs.clear()): очередь, которая
+// жила на объекте, обязана вернуться в тот же разговор и ждать человека. Без правки она пропадала молча —
+// проверено на старом коде: в нём не было ни heldQueues, ни возврата в makeConv.
+test('очередь: переживает падение и перезапуск агента, не пропадая молча', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'app.js'), 'utf8');
+  // 1) при падении очередь каждого разговора уходит в хранилище — до того как afterReady их выкинет
+  const down = src.slice(src.indexOf('function onAcpState('), src.indexOf('const LAST_WAIT_MS'));
+  assert.match(down, /heldQueues\.set\(conv\.id, \{ queue: conv\.queue[^]*\}\)/, 'при падении агента очередь убирается в хранилище');
+  // 2) новый объект того же разговора получает её обратно — и она ждёт человека, а не уходит сама
+  const mk = src.slice(src.indexOf('function makeConv('), src.indexOf('async function newChat'));
+  assert.match(mk, /heldQueues\.get\(id\)/, 'makeConv возвращает удержанную очередь');
+  assert.match(mk, /conv\.queueHeld = true/, 'возвращённая очередь ждёт человека');
+  assert.match(mk, /heldQueues\.delete\(id\)/, 'и не вернётся дважды');
+  // 3) человек узнаёт: плашка говорит, сколько сообщений ждёт и где
+  const ready = src.slice(src.indexOf('async function afterReady('), src.indexOf('  }\n\n  drawSessions'));
+  assert.match(ready, /toast\(`Агент перезапустился[^]*сообщени/, 'плашка о ждущей очереди после перезапуска');
+  // 4) очередь живёт только в рендерере: главный процесс в неё не пишет
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert.ok(!/heldQueues/.test(main), 'главный процесс не трогает очереди разговоров');
+});
+
 test('hermes.cmd goes through cmd.exe with the arguments quoted', () => {
   const line = commandLine('C:\\Program Files\\hermes\\hermes.cmd', ['-p', 'ivan', 'acp'], 'win32');
   assert.equal(line.verbatim, true);
@@ -495,7 +516,7 @@ test('рой агента: swarm_start отвечает сразу, swarm_status
     on = true;
     const started = await server.rpc('tools/call', { name: 'swarm_start', arguments: { question: 'сверь Э3', cells: 8, items: ['лист 1'] } });
     assert.equal(started.result.isError, undefined);
-    assert.match(started.result.content[0].text, /Рой запущен: 8 сот, id swarm-7/);
+    assert.match(started.result.content[0].text, /Рой запущен: до 8 сот/, 'сколько реально запустится — покажет swarm_status');
     assert.equal(started.result.structuredContent.id, 'swarm-7');
     const status = await server.rpc('tools/call', { name: 'swarm_status', arguments: {} });
     assert.match(status.result.content[0].text, /swarm-7: work, ответили 3 из 8/);
@@ -2104,6 +2125,21 @@ test('the planner may split the work itself, and a bad plan falls back to the li
   });
   const second = await fallback.run();
   assert.equal(second.cells.length, 4, 'плохой план — делим список сами');
+});
+
+// Рой не выходит за соты, которые выставил человек и разрешил администратор: план планировщика режется по бюджету,
+// а не по максимуму в 40. Без правки (slice(0, MAX_CELLS)) запускались все 12 частей — проверено на старом коде.
+test('the planner may not launch more cells than the budget says', async () => {
+  const chunks = Array.from({ length: 12 }, (_, i) => ({ title: `часть ${i + 1}`, prompt: `проверь ${i + 1}` }));
+  const swarm = new swarmLib.Swarm({
+    question: 'проверь 12 пунктов', cells: 4, minutes: 1, arbiter: false,
+    ask: async ({ cell }) => (cell.i === -1 ? `<answer>${JSON.stringify({ chunks })}</answer>`
+      : '<answer>{"checked":1,"found":[],"missing":[]}</answer>'),
+  });
+  const state = await swarm.run();
+  assert.equal(state.cells.length, 4, 'запущено не больше бюджета сот');
+  assert.equal(state.cells.map((c) => c.title).join(','), 'часть 1,часть 2,часть 3,часть 4', 'взяты первые части плана');
+  assert.equal(state.counters.cells, 4, 'счётчик сот — тоже бюджет, а не 12');
 });
 
 // --------------------------------------------------------------------------------- перезапуск в новую сборку
