@@ -71,7 +71,11 @@ export class Composer {
     this.swarmToggle.addEventListener('click', () => this._setSwarm({ on: !this.swarmPrefs.on }));
     this.swarmLess.addEventListener('click', () => this._setSwarm({ cells: this._swarmCells() - 1 }));
     this.swarmMore.addEventListener('click', () => this._setSwarm({ cells: this._swarmCells() + 1 }));
-    if (api && api.swarm && api.swarm.prefs) api.swarm.prefs().then((p) => { if (p) { this.swarmPrefs = p; this._drawSwarm(); } }).catch(() => {});
+    if (api && api.swarm && api.swarm.prefs) {
+      api.swarm.prefs().then((p) => { if (p) { this.swarmPrefs = p; this._drawSwarm(); } })
+        // не молча: непрочитанный выбор иначе выглядит ровно как «Рой: выкл» (страница → журнал окна)
+        .catch((e) => console.error('выбор роя не прочитан:', e && e.message ? e.message : e));
+    }
     this.sendBtn = h('button', { class: 'send', title: 'Отправить (Enter)' }, icon('up'));
     // пока агент работает, основная кнопка — «Остановить», а написанное встаёт в очередь этой кнопкой или Enter
     this.queueBtn = h('button', { class: 'send', title: 'В очередь: уйдёт после этого хода (Enter)', hidden: true }, icon('up'));
@@ -270,7 +274,9 @@ export class Composer {
 
   // Рой агента: предел из доступов (0 — рой не разрешён, переключателя нет)
   setSwarmLimit(allowed) {
-    this.swarmCap = allowed && allowed.on ? Math.max(4, Number(allowed.cells) || 0) : 0;
+    // предел меньше четырёх — роя нет (окно всё равно откажет агенту): переключатель не обещает соты сверх предела
+    const cap = Number(allowed && allowed.cells) || 0;
+    this.swarmCap = allowed && allowed.on && cap >= 4 ? cap : 0;
     this._drawSwarm();
   }
 

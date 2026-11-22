@@ -418,7 +418,7 @@ function drainQueue(conv, stopReason) {
   if (!item) return;
   send({ text: item.text.trim(), files: item.files }, conv).then((ok) => {
     if (ok !== false) return;
-    // не ушло: сообщение возвращается в начало очереди, и она ждёт — иначе оно пропало бы молчаа
+    // не ушло: сообщение возвращается в начало очереди, и она ждёт — иначе оно пропало бы молча
     conv.queue.unshift(item);
     conv.queueHeld = true;
     if (conv.id === S.current) composer.update();

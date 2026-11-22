@@ -24,12 +24,14 @@ function decide({ allow, prefs, busy, args }) {
   if (!p.on) return { ok: false, error: 'Рой выключен в окне: человек не включил «Рой» под полем ввода. Попросите его включить или работайте без роя.' };
   if (busy) return { ok: false, error: 'Рой уже идёт: дождитесь его (swarm_status) или остановите (swarm_stop).' };
   if (!question) return { ok: false, error: 'Нужна задача роя (question): что проверить.' };
+  // Swarm не запускает меньше четырёх сот (clampCells): предел ниже — отказ, а не рой сверх предела
+  if (!(allow.cells >= MIN_CELLS)) return { ok: false, error: `Предел сот в доступах (${allow.cells || 0}) меньше ${MIN_CELLS}: рой не запускается.` };
   const cap = Math.min(p.cells || allow.cells, allow.cells);
   const said = Number.parseInt(a.cells, 10);
   const cells = Number.isFinite(said) && said > 0 ? Math.min(said, cap) : cap;
   const items = Array.isArray(a.items) ? a.items.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 2000) : [];
-  // не меньше четырёх — но и не больше предела доступов: администратор сказал меньше — значит меньше
-  return { ok: true, cells: allow.cells > 0 ? Math.min(Math.max(MIN_CELLS, cells), allow.cells) : Math.max(MIN_CELLS, cells), question: question.slice(0, 4000), items,
+  // столько сот, сколько запустит Swarm: не меньше четырёх и не больше предела доступов
+  return { ok: true, cells: Math.max(MIN_CELLS, Math.min(cells, allow.cells)), question: question.slice(0, 4000), items,
     project: typeof a.project === 'string' ? a.project.trim() : '' };
 }
 

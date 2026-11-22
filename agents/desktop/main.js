@@ -738,8 +738,19 @@ async function startBridge() {
       // рой, который запускает сам агент: доступы + выбор человека под полем (lib/swarm-tool.js); ответ — сразу, итог — swarm_status
       swarm_start: async (body) => {
         const got = swarmTool.decide({ allow: swarmAllowed(), prefs: swarmPrefs(), busy: Boolean(swarm), args: body });
+        // папка проекта — cwd сот и место отчёта (.sysai/swarm): те же правила записи, что у правки на холсте
+        if (got.ok && got.project) {
+          const p = rules.fullPath(got.project);
+          try {
+            agentWrite(p);
+            got.project = p;
+          } catch (err) {
+            Object.assign(got, { ok: false, error: err.message });
+          }
+        }
         if (!got.ok) {
           log(`агенту отказано в рое: ${got.error}`);
+          sendOrQueue('ui:notice', { text: `Агент просил рой, отказано: ${String(got.error).slice(0, 300)}`, kind: 'warn' });
           throw new Error(got.error);
         }
         const mine = startSwarm({ question: got.question, items: got.items, cells: got.cells, project: got.project, allow: swarmAllowed() });
@@ -860,7 +871,10 @@ function swarmAllowed() {
 // Хранится здесь, в главном процессе: мост агента не спрашивает страницу, а выбор переживает перезапуск окна.
 const SWARM_PREFS = () => path.join(DESK, 'swarm-prefs.json');
 function swarmPrefs() {
-  return swarmTool.prefsOf(config.readJson(SWARM_PREFS()) || swarmTool.DEFAULT_PREFS);
+  const raw = config.readJson(SWARM_PREFS());
+  // файл есть, но не читается — рой выключен, и в журнале сказано почему, а не молча
+  if (!raw && fs.existsSync(SWARM_PREFS())) log(`выбор роя не прочитан (${SWARM_PREFS()}): считаю рой выключенным`);
+  return swarmTool.prefsOf(raw || swarmTool.DEFAULT_PREFS);
 }
 
 // Один запуск роя — из панели сот (человек) или из swarm_start (агент). Проверки — у вызывающего.

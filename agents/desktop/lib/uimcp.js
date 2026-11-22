@@ -141,9 +141,10 @@ TOOLS.push(
       question: { type: 'string', description: 'Что проверить — задача для каждой соты' },
       items: { type: 'array', items: { type: 'string' }, description: 'Части работы (файлы, листы, позиции); нет — рой делит сам' },
       cells: { type: 'integer', minimum: 1, description: 'Сколько сот (по умолчанию — сколько выставил человек)' },
-      project: { type: 'string', description: 'Папка проекта: туда ляжет отчёт (.sysai/swarm)' } },
+      project: { type: 'string', description: 'Папка проекта: туда ляжет отчёт (.sysai/swarm); нужна запись в неё (SYSAI → Доступы)' } },
     required: ['question'], additionalProperties: false },
-    annotations: { readOnlyHint: true, openWorldHint: false },
+    // сами соты только читают, но запуск пишет отчёт на диск и заводит сессии агента
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
   {
     name: 'swarm_status',

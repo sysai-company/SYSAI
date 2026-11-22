@@ -519,6 +519,38 @@ test('рой агента: окно проверяет запрос по дос�
   assert.match(src, /handle\('swarm:prefs'/);
 });
 
+test('рой агента: сот столько, сколько запустит Swarm, и не больше предела; предел меньше четырёх — отказ', () => {
+  const tool = require('../lib/swarm-tool');
+  const args = { question: 'сверь Э3' };
+  for (const cells of [0, 1, 2, 3]) {
+    const got = tool.decide({ allow: { on: true, cells, at: 1, off: '' }, prefs: { on: true }, busy: false, args });
+    assert.equal(got.ok, false, `предел ${cells}: рой не запускается сверх предела`);
+    assert.match(got.error, /меньше 4/);
+  }
+  for (const [cap, said] of [[4, 1], [6, 2], [6, 9], [16, 5], [40, 40]]) {
+    const got = tool.decide({ allow: { on: true, cells: cap, at: 1, off: '' }, prefs: { on: true }, busy: false, args: { ...args, cells: said } });
+    // сколько обещано агенту и человеку — столько и запустит Swarm
+    assert.equal(got.cells, swarmLib.clampCells(got.cells), `предел ${cap}, просил ${said}`);
+    assert.ok(got.cells <= cap, `предел ${cap}, просил ${said}: ${got.cells}`);
+  }
+});
+
+test('рой агента: папка проекта — по правилам записи, отказ видит человек, нечитаемый выбор — в журнале', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const start = src.slice(src.indexOf('      swarm_start: async (body) => {'), src.indexOf('      swarm_status:'));
+  const check = start.indexOf('agentWrite(');
+  assert.ok(check > 0, 'папка проекта проверяется правилами записи, как правка на холсте');
+  assert.ok(check < start.indexOf('startSwarm('), 'до запуска роя, а не после');
+  const refused = start.slice(start.indexOf('if (!got.ok) {'), start.indexOf('startSwarm('));
+  assert.match(refused, /sendOrQueue\('ui:notice'/, 'отказ агенту виден человеку плашкой');
+  const prefs = src.slice(src.indexOf('function swarmPrefs() {'), src.indexOf('function startSwarm('));
+  assert.match(prefs, /existsSync\(SWARM_PREFS\(\)\)\) log\(/, 'файл выбора есть, но не читается — строка в журнале');
+  const { TOOLS } = require('../lib/uimcp');
+  const startTool = TOOLS.find((t) => t.name === 'swarm_start');
+  assert.equal(startTool.annotations.readOnlyHint, false, 'запуск роя пишет отчёт и заводит сессии — не «только чтение»');
+  assert.equal(startTool.annotations.idempotentHint, false);
+});
+
 // ------------------------------------------------------------------------------------------------ storage
 function fakeFetch(routes) {
   const calls = [];
