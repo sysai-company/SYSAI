@@ -29,6 +29,7 @@ const { AutoApprove } = require('./lib/autoapprove');
 const apps = require('./lib/apps');
 const updates = require('./lib/updates');
 const { Swarm, allowedOf: swarmAllowedOf, offText: swarmOffText } = require('./lib/swarm');
+const swarmTool = require('./lib/swarm-tool');
 const relaunch = require('./lib/relaunch');
 const pkg = require('./package.json');
 
@@ -65,6 +66,7 @@ const swarmText = new Map(); // sessionId → the text this swarm cell has produ
 let swarm = null; // the swarm running now (lib/swarm.js), one at a time: it eats the whole machine
 let relaunchLast = null; // чем кончился последний перезапуск — для «Ещё» и app:info
 let swarmBeat = 0;
+let lastSwarm = null; // снимок последнего законченного роя: swarm_status отдаёт его отчёт, когда рой уже кончился
 let swarmCwd = ''; // папка роя: проект, по которому проверяют, — агент должен её видеть
 
 // ------------------------------------------------------------------------------------------------- the journal
@@ -733,6 +735,26 @@ async function startBridge() {
         showCanvas();
         return out;
       },
+      // рой, который запускает сам агент: доступы + выбор человека под полем (lib/swarm-tool.js); ответ — сразу, итог — swarm_status
+      swarm_start: async (body) => {
+        const got = swarmTool.decide({ allow: swarmAllowed(), prefs: swarmPrefs(), busy: Boolean(swarm), args: body });
+        if (!got.ok) {
+          log(`агенту отказано в рое: ${got.error}`);
+          throw new Error(got.error);
+        }
+        const mine = startSwarm({ question: got.question, items: got.items, cells: got.cells, project: got.project, allow: swarmAllowed() });
+        log(`агент запустил рой ${mine.state.id}: ${got.cells} сот, «${got.question.slice(0, 120)}»`);
+        sendOrQueue('ui:notice', { text: `Агент запустил рой: ${got.cells} сот — «${got.question.slice(0, 120)}»`, kind: 'info' });
+        return { id: mine.state.id, cells: got.cells, stage: mine.state.stage };
+      },
+      swarm_status: async () => swarmTool.brief(swarm ? swarm.snapshot() : lastSwarm),
+      swarm_stop: async () => {
+        if (!swarm) return { stopped: false };
+        swarm.abort();
+        log('агент остановил рой');
+        sendOrQueue('ui:notice', { text: 'Агент останавливает рой: ответы, что успели, останутся в отчёте', kind: 'warn' });
+        return { stopped: true };
+      },
       notice: async (body) => {
         const kind = ['err', 'warn', 'ok', 'update'].includes(body.kind) ? body.kind : 'info';
         sendOrQueue('ui:notice', { text: String(body.text || '').slice(0, 600), kind });
@@ -832,6 +854,32 @@ function swarmAllowed() {
   // нет доступов на ПК — рой закрыт, но причина другая, чем «администратор выключил», и окно так и говорит
   if (allow.why) allow.on = false;
   return { ...allow, off: swarmOffText(allow) };
+}
+
+// «Рой: вкл» и число сот под полем ввода — выбор человека, сколько роя агенту можно запускать самому (swarm_start).
+// Хранится здесь, в главном процессе: мост агента не спрашивает страницу, а выбор переживает перезапуск окна.
+const SWARM_PREFS = () => path.join(DESK, 'swarm-prefs.json');
+function swarmPrefs() {
+  return swarmTool.prefsOf(config.readJson(SWARM_PREFS()) || swarmTool.DEFAULT_PREFS);
+}
+
+// Один запуск роя — из панели сот (человек) или из swarm_start (агент). Проверки — у вызывающего.
+function startSwarm({ question, items = [], cells, minutes, project = '', allow }) {
+  const root = project ? path.join(String(project), '.sysai', 'swarm') : path.join(DESK, 'swarm');
+  swarmCwd = project ? String(project) : '';
+  swarm = new Swarm({ question, items, cells, minutes, ask: askSwarm, root, arbiter: true, concurrency: allow.at });
+  const mine = swarm;
+  mine.on('state', (s) => swarmSend(s));
+  mine.run().then((state) => {
+    log(`рой закончил: ${state.stage}, сот ${state.cells.length}, находок ${state.counters.found}`);
+    if (state.result.path) send('ui:notice', { text: `Рой готов: ${state.counters.found} находок. Отчёт — ${state.result.path}`, kind: 'ok' });
+  }).catch((err) => {
+    log('рой упал:', err);
+    send('ui:notice', { text: `Рой остановился: ${err.message}`, kind: 'err' });
+  }).finally(() => {
+    if (swarm === mine) { swarm = null; lastSwarm = mine.snapshot(); }
+  });
+  return mine;
 }
 
 function swarmSend(state) {
@@ -1076,22 +1124,12 @@ function ipc() {
     const question = String(o.question || '').trim();
     if (!question) throw new Error('рой без задачи: напишите, что проверять');
     const cells = Math.min(Number(o.cells) || allow.cells, allow.cells);
-    const root = o.project ? path.join(String(o.project), '.sysai', 'swarm') : path.join(DESK, 'swarm');
-    swarmCwd = o.project ? String(o.project) : '';
-    swarm = new Swarm({ question, items: Array.isArray(o.items) ? o.items : [], cells, minutes: o.minutes,
-      ask: askSwarm, root, arbiter: true, concurrency: allow.at });
-    const mine = swarm;
-    mine.on('state', (s) => swarmSend(s));
-    mine.run().then((state) => {
-      log(`рой закончил: ${state.stage}, сот ${state.cells.length}, находок ${state.counters.found}`);
-      if (state.result.path) send('ui:notice', { text: `Рой готов: ${state.counters.found} находок. Отчёт — ${state.result.path}`, kind: 'ok' });
-    }).catch((err) => {
-      log('рой упал:', err);
-      send('ui:notice', { text: `Рой остановился: ${err.message}`, kind: 'err' });
-    }).finally(() => {
-      if (swarm === mine) swarm = null;
-    });
-    return mine.snapshot();
+    return startSwarm({ question, items: Array.isArray(o.items) ? o.items : [], cells, minutes: o.minutes,
+      project: o.project ? String(o.project) : '', allow }).snapshot();
+  });
+  handle('swarm:prefs', (p) => {
+    if (p && typeof p === 'object') config.writeJson(SWARM_PREFS(), swarmTool.prefsOf(p));
+    return swarmPrefs();
   });
   handle('swarm:stop', () => {
     if (!swarm) return false;

@@ -67,6 +67,7 @@ def test_the_window_is_given_out_as_a_zip_of_agents_desktop(client, net_on):
     archive = zipfile.ZipFile(io.BytesIO(blob))
     names = set(archive.namelist())
     assert {"package.json", "main.js", "preload.js", "lib/uimcp.js", "lib/rules.js", "lib/bridge.js", "lib/acp.js",
+            "lib/swarm.js", "lib/swarm-tool.js", "renderer/js/queue.mjs",
             "renderer/index.html", "renderer/fonts/fonts.css", "assets/icon.ico", "LICENSES.md"} <= names
     assert not any(n.startswith("test/") for n in names) and "README.md" not in names
     assert any(n.startswith("renderer/fonts/") and n.endswith(".woff2") for n in names)

@@ -1,11 +1,13 @@
 // The message box under the conversation: text (Enter sends, Shift+Enter — a new line), files (the paperclip,
 // dragging, pasting a picture), «правки без вопросов» (the window allows the agent's edits inside the project
 // folders itself — lib/autoapprove.js), the pickers of the session (model, thinking), «/» commands, send and stop;
-// above it the agent's plan while it works.
+// above it the agent's plan while it works and the messages waiting for the turn to end (the queue: writing while the
+// agent works does not stop it).
 import { h, icon, clear, basename } from './dom.js';
 import { openMenu, menuOpenFor, closeMenu, toast } from './ui.js';
 
 const api = window.sysai;
+const PLAN_HIDDEN = 'sysai.planHidden';
 
 const EFFORT_RU = { default: 'обычно', none: 'без размышлений', minimal: 'минимально', low: 'немного', medium: 'средне',
   high: 'глубоко', xhigh: 'очень глубоко', max: 'максимум', ultra: 'ультра' };
@@ -44,6 +46,11 @@ export class Composer {
     this.slashHot = 0;
     this.plan = h('div', { class: 'plan', hidden: true });
     this.planFolded = false;
+    // «Скрыть» убирает панель плана совсем (выбор помнится); прогресс остаётся пилюлей «План N/M» в подсказке
+    this.planHidden = localStorage.getItem(PLAN_HIDDEN) === '1';
+    this.planPill = h('button', { class: 'plan-pill', hidden: true, title: 'Показать план агента' });
+    this.planPill.addEventListener('click', () => this.setPlanHidden(false));
+    this.queueEl = h('div', { class: 'queue', hidden: true });
     this.list = h('div', { class: 'attach-list', hidden: true });
     this.input = h('textarea', { rows: '1', placeholder: 'Напишите агенту…', spellcheck: 'true', 'aria-label': 'Сообщение агенту' });
     this.attachBtn = h('button', { class: 'icon-btn', title: 'Прикрепить файлы' }, icon('paperclip'));
@@ -53,13 +60,30 @@ export class Composer {
     // Соты: значка нет, пока в настройках профиля соты не включены; мигает, когда рой идёт
     this.combBtn = h('button', { class: 'icon-btn comb-btn', title: 'Соты: рой агентов', hidden: true }, icon('comb'));
     this.combBtn.addEventListener('click', () => { if (this.hooks.swarm) this.hooks.swarm(); });
+    // Рой, который агент запускает сам (swarm_start): включён ли и сколько сот. Нет разрешения в доступах — нет и кнопки.
+    this.swarmPrefs = { on: false, cells: 0 };
+    this.swarmCap = 0;
+    this.swarmToggle = h('button', { class: 'sw-toggle', title: 'Разрешить агенту запускать рой самому' });
+    this.swarmLess = h('button', { class: 'sw-step', title: 'Меньше сот', text: '−' });
+    this.swarmCount = h('b', { class: 'sw-n' });
+    this.swarmMore = h('button', { class: 'sw-step', title: 'Больше сот', text: '+' });
+    this.swarmCtl = h('span', { class: 'swarm-ctl', hidden: true }, this.swarmToggle, this.swarmLess, this.swarmCount, this.swarmMore);
+    this.swarmToggle.addEventListener('click', () => this._setSwarm({ on: !this.swarmPrefs.on }));
+    this.swarmLess.addEventListener('click', () => this._setSwarm({ cells: this._swarmCells() - 1 }));
+    this.swarmMore.addEventListener('click', () => this._setSwarm({ cells: this._swarmCells() + 1 }));
+    if (api && api.swarm && api.swarm.prefs) api.swarm.prefs().then((p) => { if (p) { this.swarmPrefs = p; this._drawSwarm(); } }).catch(() => {});
     this.sendBtn = h('button', { class: 'send', title: 'Отправить (Enter)' }, icon('up'));
+    // пока агент работает, основная кнопка — «Остановить», а написанное встаёт в очередь этой кнопкой или Enter
+    this.queueBtn = h('button', { class: 'send', title: 'В очередь: уйдёт после этого хода (Enter)', hidden: true }, icon('up'));
+    this.queueBtn.addEventListener('click', () => this.submit());
     this.slash = null;
     this.box = h('div', { class: 'composer' }, this.list, this.input,
-      h('div', { class: 'bar' }, this.attachBtn, this.autoBtn, this.pickers, this.combBtn, h('span', { class: 'grow' }), this.sendBtn));
+      h('div', { class: 'bar' }, this.attachBtn, this.autoBtn, this.pickers, this.combBtn, this.swarmCtl, h('span', { class: 'grow' }), this.sendBtn,
+        this.queueBtn));
     this.hint = h('div', { class: 'hint' }, h('span', { text: 'Enter — отправить · Shift+Enter — новая строка' }),
-      h('span', { class: 'more', text: ' · агент работает в пределах доступов SYSAI' }));
-    this.el = h('div', { class: 'composer-inner' }, this.plan, this.box, this.hint);
+      h('span', { class: 'more', text: ' · агент работает в пределах доступов SYSAI' }), this.planPill);
+    this.hintText = this.hint.firstChild;
+    this.el = h('div', { class: 'composer-inner' }, this.queueEl, this.plan, this.box, this.hint);
     this._wire();
   }
 
@@ -210,7 +234,19 @@ export class Composer {
 
   async submit() {
     const text = this.input.value.trim();
-    if ((!text && !this.files.length) || !this.hooks.ready() || (this.conv && this.conv.running)) return;
+    if ((!text && !this.files.length) || !this.hooks.ready()) return;
+    if (this.conv && this.conv.running) { // агент работает: сообщение ждёт конца хода, ход не прерывается
+      if (!this.hooks.enqueue || !this.hooks.enqueue({ text, files: [...this.files] })) return;
+      this.input.value = '';
+      delete this.kept[this._key(this.conv)];
+      this._keep();
+      this.files = [];
+      this._size();
+      this._drawFiles();
+      this._closeSlash();
+      this.update();
+      return;
+    }
     const files = [...this.files];
     const sent = { text: this.input.value, files };
     const key = this._key(this.conv);
@@ -232,6 +268,71 @@ export class Composer {
     }
   }
 
+  // Рой агента: предел из доступов (0 — рой не разрешён, переключателя нет)
+  setSwarmLimit(allowed) {
+    this.swarmCap = allowed && allowed.on ? Math.max(4, Number(allowed.cells) || 0) : 0;
+    this._drawSwarm();
+  }
+
+  _swarmCells() {
+    return Math.max(4, Math.min(this.swarmPrefs.cells || this.swarmCap, this.swarmCap || 40));
+  }
+
+  _setSwarm(change) {
+    const next = { ...this.swarmPrefs, ...change };
+    if (change.cells !== undefined) next.cells = Math.max(4, Math.min(change.cells, this.swarmCap || 40));
+    this.swarmPrefs = next;
+    this._drawSwarm();
+    if (api && api.swarm && api.swarm.prefs) {
+      api.swarm.prefs(next).then((p) => { if (p) { this.swarmPrefs = p; this._drawSwarm(); } })
+        .catch((err) => toast(`Выбор роя не сохранился: ${err.message}`, 'err'));
+    }
+  }
+
+  _drawSwarm() {
+    this.swarmCtl.hidden = !this.swarmCap;
+    if (!this.swarmCap) return;
+    const on = Boolean(this.swarmPrefs.on);
+    const n = this._swarmCells();
+    this.swarmCtl.classList.toggle('on', on);
+    this.swarmToggle.replaceChildren(icon('comb', 'sm'), h('span', { text: on ? 'Рой: вкл' : 'Рой: выкл' }));
+    this.swarmToggle.title = on ? `Агент может сам запустить рой до ${n} сот. Нажмите, чтобы запретить`
+      : 'Разрешить агенту запускать рой самому';
+    this.swarmCount.textContent = String(n);
+    this.swarmCount.title = `Сот: ${n} (не больше ${this.swarmCap} по доступам)`;
+    this.swarmLess.disabled = !on || n <= 4;
+    this.swarmMore.disabled = !on || n >= this.swarmCap;
+    this.swarmCount.hidden = !on;
+    this.swarmLess.hidden = !on;
+    this.swarmMore.hidden = !on;
+  }
+
+  // ---------- очередь: что ждёт конца хода (renderer/js/queue.mjs), каждое можно убрать
+  drawQueue() {
+    const items = (this.conv && this.conv.queue) || [];
+    clear(this.queueEl);
+    this.queueEl.hidden = !items.length;
+    const held = Boolean(this.conv && this.conv.queueHeld && !this.conv.running);
+    for (const item of items) {
+      const x = h('button', { class: 'x', title: 'Убрать из очереди' }, icon('x', 'sm'));
+      x.addEventListener('click', () => this.hooks.unqueue && this.hooks.unqueue(item.id));
+      const said = item.text || item.files.map((p) => basename(p)).join(', ');
+      this.queueEl.append(h('div', { class: 'q' }, h('span', { class: 'tag', text: held ? 'ждёт' : 'в очереди' }),
+        h('span', { class: 'qt', text: said, title: said }), item.files.length && item.text ? h('span', { class: 'qf', text: `+${item.files.length}` }) : null, x));
+    }
+    if (held && items.length) {
+      const go = h('button', { class: 'q-go', text: 'Отправить очередь' });
+      go.addEventListener('click', () => this.hooks.resume && this.hooks.resume());
+      this.queueEl.append(h('div', { class: 'q-held' }, h('span', { text: 'Агента остановили — очередь сама не уйдёт.' }), go));
+    }
+  }
+
+  setPlanHidden(hidden) {
+    this.planHidden = Boolean(hidden);
+    try { localStorage.setItem(PLAN_HIDDEN, this.planHidden ? '1' : '0'); } catch { /* not kept */ }
+    this.drawPlan();
+  }
+
   // Соты: включены ли они для профиля (тогда значок есть) и идёт ли рой сейчас (тогда он светится)
   updateSwarm({ on = false, busy = false } = {}) {
     this.combBtn.hidden = !on;
@@ -246,8 +347,13 @@ export class Composer {
     this.sendBtn.classList.toggle('stop', running);
     this.sendBtn.replaceChildren(icon(running ? 'stop' : 'up'));
     this.sendBtn.title = running ? 'Остановить (Esc)' : 'Отправить (Enter)';
-    this.sendBtn.disabled = running ? false : !ready || (!this.input.value.trim() && !this.files.length);
-    this.input.placeholder = !ready ? (this.hooks.idle ? this.hooks.idle() : 'Агент запускается…') : running ? 'Агент работает — можно писать следующее сообщение' : 'Напишите агенту…';
+    const typed = Boolean(this.input.value.trim() || this.files.length);
+    this.sendBtn.disabled = running ? false : !ready || !typed;
+    this.queueBtn.hidden = !(running && typed);
+    this.input.placeholder = !ready ? (this.hooks.idle ? this.hooks.idle() : 'Агент запускается…') : running ? 'Агент работает — напишите, сообщение встанет в очередь' : 'Напишите агенту…';
+    if (this.hintText) this.hintText.textContent = running ? 'Enter — в очередь, уйдёт после этого хода · Esc — остановить'
+      : 'Enter — отправить · Shift+Enter — новая строка';
+    this.drawQueue();
     this._drawAuto();
     this._pickers();
   }
@@ -359,9 +465,14 @@ export class Composer {
     const conv = this.conv;
     const entries = (conv && conv.plan) || [];
     const open = entries.some((e) => e.status !== 'completed');
-    if (!entries.length || (!open && !(conv && conv.running))) { this.plan.hidden = true; return; }
+    if (!entries.length || (!open && !(conv && conv.running))) { this.plan.hidden = true; this.planPill.hidden = true; return; }
     const done = entries.filter((e) => e.status === 'completed').length;
-    const head = h('h4', {}, icon('list', 'sm'), 'План', h('span', { class: 'n', text: `${done} из ${entries.length}` }),
+    this.planPill.replaceChildren(icon('list', 'sm'), h('span', { text: `План ${done}/${entries.length}` }));
+    this.planPill.hidden = !this.planHidden;
+    if (this.planHidden) { this.plan.hidden = true; return; }
+    const hide = h('button', { class: 'plan-hide', title: 'Скрыть план: останется пилюлей под полем', text: 'Скрыть' });
+    hide.addEventListener('click', (e) => { e.stopPropagation(); this.setPlanHidden(true); });
+    const head = h('h4', {}, icon('list', 'sm'), 'План', h('span', { class: 'n', text: `${done} из ${entries.length}` }), hide,
       icon(this.planFolded ? 'chevR' : 'chevD', 'sm'));
     head.addEventListener('click', () => { this.planFolded = !this.planFolded; this.drawPlan(); });
     const ul = h('ul', { hidden: this.planFolded }, entries.map((e) => h('li', { class: e.status || 'pending' }, h('span', { class: 'dot' }),

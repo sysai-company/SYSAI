@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld('sysai', {
     state: () => call('swarm:state'),
     start: (opts) => call('swarm:start', opts || {}),
     stop: () => call('swarm:stop'),
+    // «Рой: вкл» и число сот под полем: сколько роя агенту можно запускать самому; без аргумента — прочесть
+    prefs: (p) => call('swarm:prefs', p || null),
     onState: (fn) => {
       const h = (_e, payload) => fn(payload);
       ipcRenderer.on('swarm:state', h);

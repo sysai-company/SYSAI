@@ -127,12 +127,47 @@ TOOLS.push(
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
 );
+// Рой агентов (соты): агент сам запускает проверку многими сотами, когда человек включил «Рой» под полем ввода.
+// swarm_start возвращается сразу — рой идёт минуты, а мост ждёт ответа не дольше минуты; итог — swarm_status.
+TOOLS.push(
+  {
+    name: 'swarm_start',
+    title: 'Запустить рой агентов',
+    description: 'Запустить рой: много независимых сот (сессий агента) проверяют одну задачу по частям, только чтение, '
+      + 'спорное между сотами помечается. Годится для большой сверки (сигналы с Э3, спецификация с проектом, много файлов). '
+      + 'Работает, только если администратор разрешил рой и человек включил «Рой» под полем ввода; сот — не больше, чем '
+      + 'он выставил. Возвращается сразу; ход смотрите swarm_status, отчёт — файл report.',
+    inputSchema: { type: 'object', properties: {
+      question: { type: 'string', description: 'Что проверить — задача для каждой соты' },
+      items: { type: 'array', items: { type: 'string' }, description: 'Части работы (файлы, листы, позиции); нет — рой делит сам' },
+      cells: { type: 'integer', minimum: 1, description: 'Сколько сот (по умолчанию — сколько выставил человек)' },
+      project: { type: 'string', description: 'Папка проекта: туда ляжет отчёт (.sysai/swarm)' } },
+    required: ['question'], additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'swarm_status',
+    title: 'Как идёт рой',
+    description: 'Состояние роя: стадия (plan, work, merge, done, stopped, error), сколько сот ответили, находки, спорное и путь к отчёту.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'swarm_stop',
+    title: 'Остановить рой',
+    description: 'Остановить идущий рой: ответы, что успели, останутся в отчёте.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  },
+);
+const SWARM = new Set(['swarm_start', 'swarm_status', 'swarm_stop']);
 const ROUTES = { show_file: 'show', open_file: 'open', show_in_folder: 'reveal' };
 const CANVAS = new Set(['canvas_open', 'canvas_look', 'canvas_window', 'canvas_cursor', 'canvas_edit']);
 const INSTRUCTIONS = 'Человек говорит с вами в окне «Агент SYSAI». Готовый или найденный файл показывайте ему в окне '
   + '(show_file), а не пересказывайте; открыть в программе — open_file. Проект EasyBuilder Pro (.cmtp/.emtp) '
   + 'открывайте на холсте (canvas_open): человек видит окно панели и ваш курсор и правит вместе с вами; перед правкой '
   + 'смотрите canvas_look (что он выделил, куда показывает), правьте canvas_edit — у каждого помощника свой who. '
+  + 'Большую проверку по многим частям можно отдать рою (swarm_start, затем swarm_status), если человек включил «Рой». '
   + 'Доступы — те же, что дал SYSAI.';
 
 function out(msg) {
@@ -209,8 +244,22 @@ async function canvasCall(name, a) {
     + `окон в проекте: ${got.windows}). Человек видит его справа от разговора.`);
 }
 
+async function swarmCall(name, a) {
+  const body = {};
+  if (name === 'swarm_start') for (const k of ['question', 'items', 'cells', 'project']) if (a[k] !== undefined && a[k] !== null) body[k] = a[k];
+  const { status, body: got } = await post(name, body);
+  if (status !== 200) return text(String(got.error || `окно ответило ${status}`), true);
+  delete got.ok;
+  if (name === 'swarm_stop') return text(got.stopped ? 'Рой останавливается: ответы, что успели, останутся в отчёте.' : 'Роя сейчас нет.');
+  const say = name === 'swarm_start'
+    ? `Рой запущен: ${got.cells} сот, id ${got.id}. Ход — swarm_status.`
+    : got.stage === 'none' ? got.text : `Рой ${got.id}: ${got.stage}, ответили ${got.done} из ${got.cells}${got.report ? `, отчёт: ${got.report}` : ''}.`;
+  return { ...text(say), structuredContent: got };
+}
+
 async function call(name, args) {
   if (CANVAS.has(name)) return canvasCall(name, args && typeof args === 'object' ? args : {});
+  if (SWARM.has(name)) return swarmCall(name, args && typeof args === 'object' ? args : {});
   const route = ROUTES[name];
   if (!route) return text(`нет такого инструмента: ${name}`, true);
   const p = args && typeof args.path === 'string' ? args.path.trim() : '';

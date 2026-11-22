@@ -150,6 +150,56 @@ test('only one send can reserve a conversation while async preparation is pendin
   assert.equal(reserveSend({ running: true, sending: false }), false, 'an already-running conversation stays blocked');
 });
 
+// ------------------------------------------------------------------------------------------------ очередь сообщений
+test('очередь: написанное во время хода ждёт и уходит по порядку, любое можно убрать', async () => {
+  const { enqueue, dequeue, next } = await import('../renderer/js/queue.mjs');
+  const conv = { running: true, sending: false };
+  assert.equal(enqueue(conv, { text: '   ', files: [] }), null, 'пустое не встаёт в очередь');
+  const a = enqueue(conv, { text: 'И добавь ноябрь' });
+  const b = enqueue(conv, { text: 'Потом пришли итог', files: ['/x/акт.pdf'] });
+  const c = enqueue(conv, { text: '', files: ['/x/схема.pdf'] });
+  assert.ok(a && b && c && new Set([a.id, b.id, c.id]).size === 3);
+  assert.equal(next(conv, 'end_turn'), null, 'пока ход идёт, ничего не уходит');
+  assert.equal(dequeue(conv, b.id).text, 'Потом пришли итог', 'убранное до отправки не уйдёт');
+  assert.equal(dequeue(conv, 'nope'), null);
+  conv.running = false;
+  assert.equal(next(conv, 'end_turn').id, a.id, 'ход кончился — первое из очереди уходит само');
+  conv.sending = true;
+  assert.equal(next(conv, 'end_turn'), null, 'идёт отправка — следующее ждёт');
+  conv.sending = false;
+  assert.deepEqual(next(conv, 'end_turn').files, ['/x/схема.pdf']);
+  assert.equal(next(conv, 'end_turn'), null, 'очередь пуста');
+});
+
+test('очередь: после «Остановить» она не уходит сама, пока человек не скажет', async () => {
+  const { enqueue, next, release } = await import('../renderer/js/queue.mjs');
+  const conv = { running: true };
+  enqueue(conv, { text: 'ещё проверь акты' });
+  conv.running = false;
+  assert.equal(next(conv, 'cancelled'), null, 'остановили — очередь ждёт');
+  assert.equal(conv.queue.length, 1, 'и не пропала');
+  assert.equal(next(conv, 'end_turn'), null, 'и после следующего хода не уходит сама');
+  release(conv);
+  assert.equal(next(conv, null).text, 'ещё проверь акты', 'человек отправил сам — очередь снова идёт');
+  const other = { running: true };
+  enqueue(other, { text: 'a' });
+  next(Object.assign(other, { running: false }), 'cancelled');
+  enqueue(other, { text: 'b' });
+  assert.equal(next(other, 'end_turn').text, 'a', 'новое сообщение в очередь — человек снова просит работать');
+});
+
+test('очередь: сообщение уходит в свой разговор, а не в открытый сейчас', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'app.js'), 'utf8');
+  assert.match(src, /async function send\(\{ text, files \}, target = null\) \{\n  let conv = target \|\| current\(\);/,
+    'send берёт разговор явно');
+  const drain = src.slice(src.indexOf('function drainQueue('), src.indexOf('function queueHooks('));
+  assert.match(drain, /send\(\{ text: item\.text\.trim\(\), files: item\.files \}, conv\)/, 'из очереди — в тот же conv');
+  assert.ok(!/current\(\)/.test(drain), 'очередь не смотрит на открытый разговор');
+  const composer = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'composer.js'), 'utf8');
+  const submit = composer.slice(composer.indexOf('  async submit() {'), composer.indexOf('const ok = await this.hooks.send('));
+  assert.match(submit, /this\.conv\.running\) \{[^]*this\.hooks\.enqueue\(/, 'во время хода Enter ставит в очередь, а не молча выходит');
+});
+
 test('hermes.cmd goes through cmd.exe with the arguments quoted', () => {
   const line = commandLine('C:\\Program Files\\hermes\\hermes.cmd', ['-p', 'ivan', 'acp'], 'win32');
   assert.equal(line.verbatim, true);
@@ -380,7 +430,7 @@ test('the MCP server of the window: tools, calls through the bridge, refusals as
     assert.deepEqual((await server.rpc('ping', {})).result, {});
     const listed = await server.rpc('tools/list', {});
     assert.deepEqual(listed.result.tools.map((t) => t.name), ['show_file', 'open_file', 'show_in_folder', 'canvas_open',
-      'canvas_look', 'canvas_window', 'canvas_cursor', 'canvas_edit']);
+      'canvas_look', 'canvas_window', 'canvas_cursor', 'canvas_edit', 'swarm_start', 'swarm_status', 'swarm_stop']);
     for (const t of listed.result.tools.slice(0, 4)) assert.deepEqual(t.inputSchema.required, ['path']);
     assert.match(init.result.instructions, /canvas_open/);
     const shown = await server.rpc('tools/call', { name: 'show_file', arguments: { path: '/x/отчёт.md', line: 4 } });
@@ -399,6 +449,74 @@ test('the MCP server of the window: tools, calls through the bridge, refusals as
     bridge.stop();
     await server.close();
   }
+});
+
+// ------------------------------------------------------------------------------------------------ рой, который запускает агент
+test('рой агента: доступы, выбор человека и число сот — отказы словами', () => {
+  const tool = require('../lib/swarm-tool');
+  const allow = { on: true, cells: 16, at: 6, off: '' };
+  const args = { question: 'сверь адреса с Э3' };
+  const off = tool.decide({ allow: { on: false, cells: 0, off: 'Рой агентов для вас выключен.' }, prefs: { on: true, cells: 8 }, busy: false, args });
+  assert.deepEqual(off, { ok: false, error: 'Рой агентов для вас выключен.' }, 'администратор не разрешил — причина из доступов');
+  const notOn = tool.decide({ allow, prefs: { on: false, cells: 8 }, busy: false, args });
+  assert.equal(notOn.ok, false);
+  assert.match(notOn.error, /Рой выключен в окне/, 'человек не включил «Рой» — агент знает об этом');
+  assert.match(tool.decide({ allow, prefs: { on: true }, busy: true, args }).error, /уже идёт/);
+  assert.match(tool.decide({ allow, prefs: { on: true }, busy: false, args: {} }).error, /Нужна задача/);
+  const ok = tool.decide({ allow, prefs: { on: true, cells: 8 }, busy: false, args: { ...args, cells: 30, project: ' /p ' } });
+  assert.deepEqual([ok.ok, ok.cells, ok.project], [true, 8, '/p'], 'агент не берёт больше сот, чем выставил человек');
+  assert.equal(tool.decide({ allow, prefs: { on: true, cells: 40 }, busy: false, args }).cells, 16, 'и не больше предела доступов');
+  assert.equal(tool.decide({ allow, prefs: { on: true }, busy: false, args }).cells, 16, 'не выбирал — весь предел');
+  assert.equal(tool.decide({ allow, prefs: { on: true, cells: 8 }, busy: false, args: { ...args, cells: 5 } }).cells, 5, 'меньше — можно');
+  assert.equal(tool.decide({ allow, prefs: { on: true, cells: 8 }, busy: false, args: { ...args, cells: 1 } }).cells, 4, 'не меньше четырёх');
+  assert.deepEqual(tool.prefsOf({ on: 1, cells: '99' }), { on: true, cells: 40 });
+  assert.deepEqual(tool.prefsOf(null), { on: false, cells: 0 });
+  assert.equal(tool.brief(null).stage, 'none');
+  const b = tool.brief({ id: 'swarm-1', stage: 'done', counters: { cells: 8, done: 7, error: 1, found: 3 },
+    result: { conflicts: [{}], path: '/p/.sysai/swarm/swarm-1/result.md' } });
+  assert.deepEqual([b.id, b.stage, b.done, b.cells, b.conflicts, b.report], ['swarm-1', 'done', 7, 8, 1, '/p/.sysai/swarm/swarm-1/result.md']);
+});
+
+test('рой агента: swarm_start отвечает сразу, swarm_status и swarm_stop идут через мост, отказ — ошибка инструмента', async () => {
+  const home = tmp();
+  const calls = [];
+  let on = false;
+  const bridge = new Bridge({ file: path.join(home, 'desktop', 'bridge.json'), handlers: {
+    swarm_start: async (b) => { calls.push(['start', b]); if (!on) throw new Error('Рой выключен в окне'); return { id: 'swarm-7', cells: 8, stage: 'idle' }; },
+    swarm_status: async () => ({ id: 'swarm-7', stage: 'work', cells: 8, done: 3, report: '' }),
+    swarm_stop: async () => ({ stopped: true }),
+  } });
+  const server = mcp(home);
+  try {
+    await bridge.start();
+    const refused = await server.rpc('tools/call', { name: 'swarm_start', arguments: { question: 'сверь Э3' } });
+    assert.equal(refused.result.isError, true);
+    assert.match(refused.result.content[0].text, /Рой выключен в окне/);
+    on = true;
+    const started = await server.rpc('tools/call', { name: 'swarm_start', arguments: { question: 'сверь Э3', cells: 8, items: ['лист 1'] } });
+    assert.equal(started.result.isError, undefined);
+    assert.match(started.result.content[0].text, /Рой запущен: 8 сот, id swarm-7/);
+    assert.equal(started.result.structuredContent.id, 'swarm-7');
+    const status = await server.rpc('tools/call', { name: 'swarm_status', arguments: {} });
+    assert.match(status.result.content[0].text, /swarm-7: work, ответили 3 из 8/);
+    const stopped = await server.rpc('tools/call', { name: 'swarm_stop', arguments: {} });
+    assert.match(stopped.result.content[0].text, /останавливается/);
+    assert.deepEqual(calls[1], ['start', { question: 'сверь Э3', items: ['лист 1'], cells: 8 }]);
+  } finally {
+    bridge.stop();
+    await server.close();
+  }
+});
+
+test('рой агента: окно проверяет запрос по доступам и выбору, пишет в журнал и говорит человеку', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const start = src.slice(src.indexOf('      swarm_start: async (body) => {'), src.indexOf('      swarm_status:'));
+  assert.match(start, /swarmTool\.decide\(\{ allow: swarmAllowed\(\), prefs: swarmPrefs\(\), busy: Boolean\(swarm\)/);
+  assert.match(start, /log\(`агент запустил рой/);
+  assert.match(start, /sendOrQueue\('ui:notice'/);
+  assert.match(start, /log\(`агенту отказано в рое/);
+  assert.ok(!/await mine\.run|await swarm\.run/.test(start), 'ответ агенту — сразу, рой идёт минуты, а мост ждёт минуту');
+  assert.match(src, /handle\('swarm:prefs'/);
 });
 
 // ------------------------------------------------------------------------------------------------ storage

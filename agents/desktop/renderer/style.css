@@ -555,6 +555,31 @@ html[data-theme="light"] .upd-text span { color: var(--muted); }
 .composer .pickers { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
 .composer-inner > .plan { margin: 0 0 8px; padding: 10px 14px; }
 .composer-inner > .plan h4 { cursor: pointer; margin-bottom: 0; } .composer-inner > .plan ul { margin-top: 8px; max-height: 180px; overflow-y: auto; }
+.plan h4 .plan-hide { font: 500 11.5px/1 var(--sans); text-transform: none; letter-spacing: 0; color: var(--faint); padding: 3px 7px; border-radius: var(--r-xs); border: 1px solid var(--line2); }
+.plan h4 .plan-hide:hover { color: var(--text); background: var(--hover); }
+.hint .plan-pill { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line2); color: var(--muted); font-size: 11.5px; vertical-align: middle; }
+.hint .plan-pill:hover { color: var(--text); background: var(--hover); }
+/* очередь: сообщения ждут конца хода над полем ввода */
+.composer-inner > .queue { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; }
+.queue .q { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px dashed var(--line2); border-radius: var(--r); padding: 6px 6px 6px 10px; font-size: 13px; color: var(--soft); min-width: 0; }
+.queue .q .tag { flex: none; font-size: 11px; color: var(--amber); border: 1px solid var(--amber); border-radius: var(--r-xs); padding: 0 5px; }
+.queue .q .qt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; }
+.queue .q .qf { flex: none; color: var(--faint); font-size: 12px; }
+.queue .q .x { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-xs); color: var(--faint); }
+.queue .q .x:hover { background: var(--hover); color: var(--text); }
+.queue .q-held { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); padding: 0 2px; }
+.queue .q-go { color: var(--clay); font-size: 12.5px; } .queue .q-go:hover { color: var(--clay2); text-decoration: underline; }
+.composer .bar .send + .send { margin-left: 4px; }
+/* рой агента: включён ли и сколько сот */
+.swarm-ctl { display: inline-flex; align-items: center; gap: 2px; flex: none; border-radius: var(--r-sm); font-size: 12.5px; color: var(--muted); }
+.swarm-ctl .sw-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: var(--r-sm); color: var(--muted); }
+.swarm-ctl .sw-toggle:hover { background: var(--hover); color: var(--text); }
+.swarm-ctl.on { background: var(--clay-bg); box-shadow: inset 0 0 0 1px var(--clay-line); }
+.swarm-ctl.on .sw-toggle { color: var(--clay); }
+.swarm-ctl .sw-step { width: 20px; height: 22px; border-radius: var(--r-xs); color: var(--clay); font-size: 14px; line-height: 1; }
+.swarm-ctl .sw-step:hover { background: var(--hover); } .swarm-ctl .sw-step:disabled { opacity: .35; pointer-events: none; }
+.swarm-ctl .sw-n { min-width: 16px; text-align: center; color: var(--clay); font-weight: 600; }
+@container (max-width: 640px) { .swarm-ctl .sw-toggle span { display: none; } }
 .boot-acts { display: flex; gap: 8px; justify-content: center; }
 .s-more { display: block; width: 100%; padding: 8px 10px; margin-top: 4px; border-radius: var(--r-sm); color: var(--muted); font-size: 12.5px; text-align: left; }
 .s-more:hover { background: var(--hover); color: var(--text); }
