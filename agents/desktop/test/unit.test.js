@@ -201,24 +201,50 @@ test('очередь: сообщение уходит в свой разгово
 });
 
 // Падение агента посреди хода выкидывает все объекты разговоров (afterReady → S.convs.clear()): очередь, которая
-// жила на объекте, обязана вернуться в тот же разговор и ждать человека. Без правки она пропадала молча —
-// проверено на старом коде: в нём не было ни heldQueues, ни возврата в makeConv.
-test('очередь: переживает падение и перезапуск агента, не пропадая молча', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'app.js'), 'utf8');
-  // 1) при падении очередь каждого разговора уходит в хранилище — до того как afterReady их выкинет
-  const down = src.slice(src.indexOf('function onAcpState('), src.indexOf('const LAST_WAIT_MS'));
-  assert.match(down, /heldQueues\.set\(conv\.id, \{ queue: conv\.queue[^]*\}\)/, 'при падении агента очередь убирается в хранилище');
-  // 2) новый объект того же разговора получает её обратно — и она ждёт человека, а не уходит сама
-  const mk = src.slice(src.indexOf('function makeConv('), src.indexOf('async function newChat'));
-  assert.match(mk, /heldQueues\.get\(id\)/, 'makeConv возвращает удержанную очередь');
-  assert.match(mk, /conv\.queueHeld = true/, 'возвращённая очередь ждёт человека');
-  assert.match(mk, /heldQueues\.delete\(id\)/, 'и не вернётся дважды');
-  // 3) человек узнаёт: плашка говорит, сколько сообщений ждёт и где
-  const ready = src.slice(src.indexOf('async function afterReady('), src.indexOf('  }\n\n  drawSessions'));
-  assert.match(ready, /toast\(`Агент перезапустился[^]*сообщени/, 'плашка о ждущей очереди после перезапуска');
-  // 4) очередь живёт только в рендерере: главный процесс в неё не пишет
-  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
-  assert.ok(!/heldQueues/.test(main), 'главный процесс не трогает очереди разговоров');
+// жила на объекте, обязана вернуться в тот же разговор и ждать человека. Поведение, а не текст файла: hold и restore
+// живут в DOM-свободном renderer/js/queue.mjs. Проверено на старом коде: модуль этих функций не экспортировал.
+test('очередь: переживает падение и перезапуск агента, не пропадая молча', async () => {
+  const q = await import('../renderer/js/queue.mjs');
+  // ход идёт, в разговоре два сообщения в очереди и одно в другом разговоре
+  const a = { id: 's-a', running: true, sending: false };
+  const b = { id: 's-b', running: true, sending: false };
+  q.enqueue(a, { text: 'пришли итог по Н3' });
+  q.enqueue(a, { text: 'и перепроверь цепочку QF3' });
+  q.enqueue(b, { text: 'отдельный разговор' });
+  // агент упал: очереди удержаны снимком — до того как afterReady выкинет разговоры
+  assert.equal(q.hold(a), 2, 'hold возвращает число удержанных сообщений');
+  assert.equal(q.hold(b), 1);
+  // хранилище держит снимок, не ссылку: умирающий ход может ещё довыполниться и забрать сообщение из живой очереди,
+  // удержанное от этого не меняется
+  const dyingTurnTook = q.dequeue(a, a.queue[0].id);
+  assert.equal(dyingTurnTook && dyingTurnTook.text, 'пришли итог по Н3', 'имитация: ход забрал первое из живой очереди');
+  // плашка считает сообщения, не разговоры: в хранилище 2 + 1, живая очередь разговора в счёт не идёт
+  const report = q.heldReport((id) => (id === 's-a' ? 'Элеватор Благовещенск' : ''));
+  assert.equal(report.count, 3, 'считаются сообщения, а не разговоры (2 + 1)');
+  assert.deepEqual(report.names, ['Элеватор Благовещенск', 'разговор'], 'имена разговоров для плашки');
+  // разговоры выкинуты (afterReady), пересозданы с теми же id — makeConv зовёт restore
+  const freshA = { id: 's-a', running: false, sending: false };
+  const back = q.restore('s-a');
+  assert.equal(back && back.length, 2, 'очередь вернулась в тот же разговор');
+  freshA.queue = [...back];
+  freshA.queueHeld = true;
+  assert.equal(q.next(freshA, null), null, 'возвращённая очередь ждёт человека, а не уходит сама');
+  assert.equal(q.restore('s-a'), null, 'и не вернётся дважды');
+  // разговор удалён — удержанная очередь не вернётся и не посчитается
+  assert.equal(q.forget('s-b'), true, 'удаление разговора снимает удержание');
+  assert.equal(q.restore('s-b'), null);
+  assert.equal(q.heldReport(() => '').count, 0, 'удалённый разговор не считается в плашке');
+  // срок: запись, чей разговор не открывали, не живёт вечно и не считается в плашке после нового рестарта
+  const c = { id: 's-c', running: true, sending: false };
+  q.enqueue(c, { text: 'старое' });
+  q.hold(c, Date.now() - 16 * 60 * 1000);
+  assert.equal(q.heldReport(() => '').count, 0, 'просроченная запись не считается');
+  assert.equal(q.restore('s-c', Date.now()), null, 'и не возвращается в разговор');
+  // форма числа для плашки: 1 сообщение, 2-4 сообщения, 5+ сообщений, 21 сообщение
+  assert.equal(q.messagesWaiting(1), '1 сообщение ждёт');
+  assert.equal(q.messagesWaiting(3), '3 сообщения ждут');
+  assert.equal(q.messagesWaiting(5), '5 сообщений ждут');
+  assert.equal(q.messagesWaiting(21), '21 сообщение ждёт');
 });
 
 test('hermes.cmd goes through cmd.exe with the arguments quoted', () => {
