@@ -28,7 +28,8 @@ function decide({ allow, prefs, busy, args }) {
   const said = Number.parseInt(a.cells, 10);
   const cells = Number.isFinite(said) && said > 0 ? Math.min(said, cap) : cap;
   const items = Array.isArray(a.items) ? a.items.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 2000) : [];
-  return { ok: true, cells: Math.max(MIN_CELLS, cells), question: question.slice(0, 4000), items,
+  // не меньше четырёх — но и не больше предела доступов: администратор сказал меньше — значит меньше
+  return { ok: true, cells: allow.cells > 0 ? Math.min(Math.max(MIN_CELLS, cells), allow.cells) : Math.max(MIN_CELLS, cells), question: question.slice(0, 4000), items,
     project: typeof a.project === 'string' ? a.project.trim() : '' };
 }
 
