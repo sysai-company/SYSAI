@@ -253,7 +253,7 @@ async function swarmCall(name, a) {
   delete got.ok;
   if (name === 'swarm_stop') return text(got.stopped ? 'Рой останавливается: ответы, что успели, останутся в отчёте.' : 'Роя сейчас нет.');
   const say = name === 'swarm_start'
-    ? `Рой запущен: ${got.cells} сот, id ${got.id}. Ход — swarm_status.`
+    ? `Рой запущен: до ${got.cells} сот (сколько планировщик разобьёт — увидите в swarm_status), id ${got.id}.`
     : got.stage === 'none' ? got.text : `Рой ${got.id}: ${got.stage}, ответили ${got.done} из ${got.cells}${got.report ? `, отчёт: ${got.report}` : ''}.`;
   return { ...text(say), structuredContent: got };
 }

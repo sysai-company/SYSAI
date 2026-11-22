@@ -281,7 +281,9 @@ class Swarm extends EventEmitter {
     const data = jsonOf(said);
     const list = data && Array.isArray(data.chunks) ? data.chunks.filter((c) => c && c.prompt) : [];
     if (!list.length) return chunk({ question: this.question, items: this.items, cells: this.cells });
-    return list.slice(0, MAX_CELLS).map((c, i) => ({
+    // бюджет сот решает администратор (доступы) и человек (переключатель под полем): план планировщика режется
+    // по нему, а не по максимуму в 40 — иначе рой запускает больше, чем было разрешено
+    return list.slice(0, this.cells).map((c, i) => ({
       title: String(c.title || `часть ${i + 1}`).slice(0, 120),
       items: [],
       prompt: String(c.prompt),
